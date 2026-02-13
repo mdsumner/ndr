@@ -309,11 +309,62 @@ No data loaded. Everything derived from metadata.
 
 A possible split:
 
-- **ndr**: Core Variable / DataArray / Dataset classes, broadcasting, coordinate indexing, print methods. Zero heavy dependencies. This is the "vctrs of N-dimensional arrays." dibble's pure-R broadcasting logic could inform or be reused here.
-- **ndio**: Backend readers — ncdf4, GDAL (via vapour/gdalraster), zarr. Provides the `open_dataset()` / `open_mfdataset()` entry points. Depends on ndr + backend packages. If Arrow is adopted, nanoarrow lives here as the universal chunk interchange format between backends and the core.
-- **ndops**: Deferred operations, lazy evaluation, chunk-based compute. The dbplyr-like operation recording layer. Depends on ndr, optionally on future. If Arrow is adopted, arrow compute kernels could serve as the default evaluation engine.
+- **ndr**: Core Variable / DataArray / Dataset classes, broadcasting, coordinate indexing, print methods. Zero heavy dependencies (S7 only). This is the "vctrs of N-dimensional arrays." Implemented and working (v0.1.0).
+- **ndio** (or similar): Backend readers. Provides `open_dataset()` / `open_mfdataset()` entry points. Depends on ndr + backend packages. The backend contract is intentionally minimal — a backend needs only:
+  - `nd_schema(source)` — return dimension names/sizes, coordinate values, variable names, and attributes. Metadata only, no data read.
+  - `nd_read(source, var, slices)` — return an R array for the requested variable and index ranges.
+  
+  This is fundamentally different from xarray's backend API, which is large because backends participate in lazy evaluation and chunked compute. Here the backend is just a reader; ndr handles everything above the read.
+- **ndops** (future): Deferred operations, lazy evaluation, chunk-based compute. The dbplyr-like operation recording layer.
 
 The split keeps the core clean and testable. Someone who just wants named-dimension arrays on in-memory data can use ndr alone.
+
+### Backend Strategy: Why R Doesn't Need Python's Layer Cake
+
+Python's xarray ecosystem required building fsspec (filesystem abstraction), zarr-python (codec/store engine), kerchunk/virtualizarr (virtual references), h5netcdf (HDF5 reader), and rioxarray (geospatial bridge) as separate layers because no single C library handled it all. R has GDAL, whose multidimensional API (`GDALGroup` / `MDArray` / `GDALDimension`) already reads across all of these formats through a single interface:
+
+- NetCDF-4 / HDF5 (the standard scientific formats)
+- Zarr v2 (cloud-optimised arrays)
+- Kerchunk-parquet virtual stores (reference-based access to remote files)
+- VRT multidim (GDAL's own virtual format)
+- GRIB (weather/climate model output)
+
+This means the entire VirtualiZarr workflow — build the index in Python where the data lives, push the parquet store somewhere accessible, consume it in R through GDAL — works today. R doesn't need its own virtualizarr or fsspec. The division of labour is: Python does the indexing (it's better at the HPC/cloud filesystem dance), R does the analysis through GDAL.
+
+The GDAL multidim → ndr mapping is nearly 1:1:
+
+| GDAL multidim concept | ndr concept |
+|----------------------|-------------|
+| `GDALGroup` | `Dataset` |
+| `MDArray` | `Variable` |
+| `GDALDimension` | dim name + `ImplicitCoord` or `ExplicitCoord` |
+| `MDArray::GetAttribute()` | `attrs` list |
+| `MDArray::GetView("[i,j,:]")` | `isel()` implementation |
+| `scale_factor` / `add_offset` / `_FillValue` | decoded by GDAL before ndr sees it |
+
+#### Backend paths (prioritised)
+
+**1. GDAL multidim (primary).** Available in nascent form via a gdalraster multidim branch, or in future via GDAL7 SWIG bindings. Handles all formats, virtual filesystems (`/vsicurl/`, `/vsis3/`), and CF decoding. The backend wrapper maps `GDALDimension` metadata to ndr coordinates and `GetView()` slices to R arrays. Even if the R-side API is low-level (raw numeric vector + shape), the wrapper is trivial: `array(raw_vec, dim = shape)` → `Variable()`.
+
+**2. tidync (complementary, NetCDF-only).** Already the best pure-NetCDF reader in R with proper schema introspection. For local NetCDF files where GDAL's virtual filesystem stack isn't needed, tidync → ndr is cleaner. tidync's `hyper_filter()` maps naturally to `sel()` — the coordinate-to-index translation is the same operation. The bridge is thin: tidync schema → ndr coords + dims, `hyper_array()` → Variable data.
+
+**3. Arrow (interchange layer, not a Zarr engine).** Building a full Zarr engine in R from Arrow primitives is too general and not rewarding. Where Arrow helps: if a backend returns Arrow arrays instead of R arrays, you get zero-copy slicing and compression-aware interchange. Since `Variable@data = class_any`, an Arrow array can sit in a Variable without ndr knowing or caring. Arrow also natively reads Parquet, which is what kerchunk-parquet stores are — but GDAL already handles that path, so Arrow's role is optimisation, not necessity.
+
+#### What this means in practice
+
+A user working with a kerchunk-parquet virtual store of BRAN2023 ocean temperature (12TB logical array, 180 monthly NetCDF files) would do:
+
+```r
+# GDAL multidim backend reads the parquet references, fetches only the chunks needed
+ds <- open_dataset("ZARR:/vsicurl/https://example.com/ocean_temp_2023.parq")
+
+# ndr provides the coordinate-aware interface
+ds$temp |>
+  sel(st_ocean = 65.0, Time = as.Date("2024-01-15")) |>
+  nd_mean("yt_ocean")
+```
+
+No fsspec, no zarr-python, no dask scheduler. GDAL does the chunk-level I/O, ndr does the dimension-aware operations. The user sees a clean R interface over 12TB of data.
 
 
 ## 5. Comparison with Existing R Approaches

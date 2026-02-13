@@ -190,7 +190,7 @@ nd_mean(temp, c("lat", "lon"))
 #> <Variable> (time: 10) double
 nd_mean(temp, c("time", "lat", "lon"))
 #> <Variable> scalar double
-#>   value: -0.1608415
+#>   value: -0.08481647
 ```
 
 ## Datasets
