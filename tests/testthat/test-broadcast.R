@@ -70,7 +70,7 @@ test_that("DataArray arithmetic preserves coordinates", {
   da <- DataArray(variable = v1, coords = list(lat = lat, lon = lon), name = "temp")
   result <- da * 2
 
-  expect_s3_class(result, "DataArray")
+  expect_true(S7_inherits(result, DataArray))
   expect_equal(length(result@coords), 2L)
   expect_equal(coord_dim(result@coords$lat), "lat")
 })

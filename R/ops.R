@@ -25,92 +25,85 @@
 #'
 NULL
 
-#' @export
-Ops.Variable <- function(e1, e2) {
-  op <- match.fun(.Generic)
 
-  if (missing(e2)) {
-    # unary ops: -, +, !
-    return(Variable(
-      dims = e1@dims,
-      data = op(e1@data),
-      attrs = e1@attrs
-    ))
-  }
+# --- helpers ---
 
-  # wrap bare values
-  if (!S7_inherits(e1, Variable) && !S7_inherits(e1, DataArray)) {
-    e1 <- Variable(dims = character(), data = array(e1))
-  }
-  if (!S7_inherits(e2, Variable) && !S7_inherits(e2, DataArray)) {
-    e2 <- Variable(dims = character(), data = array(e2))
-  }
+#' Wrap a bare value as a scalar Variable
+#' @noRd
+wrap_scalar <- function(x) {
+  Variable(dims = character(), data = array(x))
+}
 
-  # if either is a DataArray, delegate to DataArray ops
-  if (S7_inherits(e1, DataArray) || S7_inherits(e2, DataArray)) {
-    return(dataarray_op(e1, e2, op))
-  }
-
+#' Apply a Variable-level broadcast op, wrapping scalars as needed
+#' @noRd
+var_op <- function(e1, e2, op) {
+  if (!S7_inherits(e1, Variable)) e1 <- wrap_scalar(e1)
+  if (!S7_inherits(e2, Variable)) e2 <- wrap_scalar(e2)
   broadcast_op(e1, e2, op)
 }
 
+#' Apply a DataArray-level op, wrapping scalars as needed
+#' @noRd
+da_op <- function(e1, e2, op) {
+  # extract or wrap to Variable level
+  v1 <- if (S7_inherits(e1, DataArray)) e1@variable
+        else if (S7_inherits(e1, Variable)) e1
+        else wrap_scalar(e1)
+  v2 <- if (S7_inherits(e2, DataArray)) e2@variable
+        else if (S7_inherits(e2, Variable)) e2
+        else wrap_scalar(e2)
 
-#' @export
-Ops.DataArray <- function(e1, e2) {
-  op <- match.fun(.Generic)
-
-  if (missing(e2)) {
-    return(DataArray(
-      variable = Variable(
-        dims = e1@variable@dims,
-        data = op(e1@variable@data),
-        attrs = e1@variable@attrs
-      ),
-      coords = e1@coords,
-      name = e1@name
-    ))
-  }
-
-  # wrap bare values
-  if (!S7_inherits(e1, Variable) && !S7_inherits(e1, DataArray)) {
-    e1 <- Variable(dims = character(), data = array(e1))
-  }
-  if (!S7_inherits(e2, Variable) && !S7_inherits(e2, DataArray)) {
-    e2 <- Variable(dims = character(), data = array(e2))
-  }
-
-  dataarray_op(e1, e2, op)
-}
-
-
-#' Apply an operation between Variables/DataArrays, preserving coordinates
-#' @keywords internal
-dataarray_op <- function(e1, e2, op) {
-  # extract Variables
-  v1 <- if (S7_inherits(e1, DataArray)) e1@variable else e1
-  v2 <- if (S7_inherits(e2, DataArray)) e2@variable else e2
-
-  # broadcast the underlying Variables
   result_var <- broadcast_op(v1, v2, op)
 
-  # merge coordinates: take from left, fill in from right
+  # merge coords: take from left, fill in from right
   c1 <- if (S7_inherits(e1, DataArray)) e1@coords else list()
   c2 <- if (S7_inherits(e2, DataArray)) e2@coords else list()
+  merged <- c2
+  for (nm in names(c1)) merged[[nm]] <- c1[[nm]]
+  merged <- Filter(function(c) coord_dim(c) %in% result_var@dims, merged)
 
-  merged_coords <- c2  # start with right
-  for (nm in names(c1)) {
-    merged_coords[[nm]] <- c1[[nm]]  # left overwrites
-  }
-  # only keep coords whose dim is in the result
-  result_dims <- result_var@dims
-  merged_coords <- Filter(
-    function(c) coord_dim(c) %in% result_dims,
-    merged_coords
-  )
-
-  DataArray(
-    variable = result_var,
-    coords = merged_coords,
-    name = character()
-  )
+  DataArray(variable = result_var, coords = merged, name = character())
 }
+
+
+# --- Register S7 methods for all arithmetic/comparison operators ---
+#
+# S7's Ops.S7_object intercepts before any S3 Ops.ClassName method,
+# so we must register methods via S7's method() for each operator.
+
+local({
+  binary_ops <- list(`+`, `-`, `*`, `/`, `^`, `%%`, `%/%`,
+                     `==`, `!=`, `<`, `<=`, `>`, `>=`)
+
+  for (op in binary_ops) {
+    local({
+      my_op <- op
+
+      # Variable <op> Variable
+      method(my_op, list(Variable, Variable)) <- function(e1, e2) {
+        var_op(e1, e2, my_op)
+      }
+      # Variable <op> scalar
+      method(my_op, list(Variable, class_any)) <- function(e1, e2) {
+        var_op(e1, e2, my_op)
+      }
+      # scalar <op> Variable
+      method(my_op, list(class_any, Variable)) <- function(e1, e2) {
+        var_op(e1, e2, my_op)
+      }
+
+      # DataArray <op> DataArray
+      method(my_op, list(DataArray, DataArray)) <- function(e1, e2) {
+        da_op(e1, e2, my_op)
+      }
+      # DataArray <op> anything (scalar or Variable)
+      method(my_op, list(DataArray, class_any)) <- function(e1, e2) {
+        da_op(e1, e2, my_op)
+      }
+      # anything <op> DataArray
+      method(my_op, list(class_any, DataArray)) <- function(e1, e2) {
+        da_op(e1, e2, my_op)
+      }
+    })
+  }
+})

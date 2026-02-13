@@ -19,7 +19,7 @@ test_that("ImplicitCoord lookup is O(1) inverse", {
 test_that("ImplicitCoord slicing preserves implicitness for regular subsets", {
   lon <- ImplicitCoord(dimension = "lon", n = 360L, offset = 0.5, step = 1.0)
   sliced <- coord_slice(lon, 10:20)
-  expect_s3_class(sliced, "ImplicitCoord")
+  expect_true(S7_inherits(sliced, ImplicitCoord))
   expect_equal(sliced@n, 11L)
   expect_equal(sliced@offset, 9.5)
   expect_equal(sliced@step, 1.0)
@@ -28,7 +28,7 @@ test_that("ImplicitCoord slicing preserves implicitness for regular subsets", {
 test_that("ImplicitCoord slicing materializes for irregular subsets", {
   lon <- ImplicitCoord(dimension = "lon", n = 10L, offset = 0.5, step = 1.0)
   sliced <- coord_slice(lon, c(1, 3, 7))
-  expect_s3_class(sliced, "ExplicitCoord")
+  expect_true(S7_inherits(sliced, ExplicitCoord))
   expect_equal(sliced@values, c(0.5, 2.5, 6.5))
 })
 

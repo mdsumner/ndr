@@ -24,9 +24,9 @@
 #' s
 #'
 #' @export
-Variable <- S7::new_class("Variable",
+Variable <- new_class("Variable",
   properties = list(
-    dims  = S7::class_character,
+    dims  = class_character,
     data  = class_any,
     attrs = new_property(class_list, default = list()),
     encoding = new_property(class_list, default = list())
@@ -79,23 +79,19 @@ method(shape, Variable) <- function(x) {
 
 # dim method for Variable (S3, so base::dim dispatches)
 #' @export
-dim.ndr_Variable <- function(x) {
+`dim.ndr::Variable` <- function(x) {
   s <- shape(x)
   if (length(s) == 0L) return(NULL)
   unname(s)
 }
 
 #' @export
-length.ndr_Variable <- function(x) {
+`length.ndr::Variable` <- function(x) {
   prod(shape(x))
 }
 
 # Ensure Variable is an array when needed
 #' @export
-as.array.ndr_Variable <- function(x, ...) {
-  d <- x@data
-  if (is.null(dim(d)) && length(x@dims) == 1L) {
-    dim(d) <- length(d)
-  }
-  d
+`as.array.ndr::Variable` <- function(x, ...) {
+  var_data(x)
 }

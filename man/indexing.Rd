@@ -6,12 +6,12 @@
 \alias{sel}
 \title{Coordinate-based indexing}
 \usage{
-isel(x, ...)
+isel(.data, ...)
 
-sel(x, ...)
+sel(.data, ...)
 }
 \arguments{
-\item{x}{A Variable, DataArray, or Dataset}
+\item{.data}{A Variable, DataArray, or Dataset}
 
 \item{...}{Named arguments specifying the selection. For \code{sel()}, values
 are coordinate values. For \code{isel()}, values are integer indices (1-based).

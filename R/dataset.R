@@ -84,13 +84,13 @@ Dataset <- new_class("Dataset",
 #' @param var_name Character name of the variable
 #' @return A DataArray
 #' @export
-`$.Dataset` <- function(ds, var_name) {
+`$.ndr::Dataset` <- function(ds, var_name) {
   var_name <- as.character(substitute(var_name))
   extract_dataarray(ds, var_name)
 }
 
 #' @export
-`[[.Dataset` <- function(ds, var_name) {
+`[[.ndr::Dataset` <- function(ds, var_name) {
   extract_dataarray(ds, var_name)
 }
 

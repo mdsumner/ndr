@@ -6,7 +6,7 @@
 #' Both work on Variables, DataArrays, and Datasets, and return objects of
 #' the same type with dimensions correctly updated.
 #'
-#' @param x A Variable, DataArray, or Dataset
+#' @param .data A Variable, DataArray, or Dataset
 #' @param ... Named arguments specifying the selection. For `sel()`, values
 #'   are coordinate values. For `isel()`, values are integer indices (1-based).
 #'   Use a vector for ranges: `sel(da, lat = c(-30, 30))` selects the range.
@@ -42,15 +42,15 @@ NULL
 
 #' @rdname indexing
 #' @export
-isel <- new_generic("isel", "x")
+isel <- new_generic("isel", ".data")
 
-method(isel, Variable) <- function(x, ...) {
+method(isel, Variable) <- function(.data, ...) {
   selections <- list(...)
-  if (length(selections) == 0L) return(x)
+  if (length(selections) == 0L) return(.data)
 
-  s <- shape(x)
+  s <- shape(.data)
   dims <- names(s)
-  arr <- as.array(x)
+  arr <- var_data(.data)
 
   # build index list: NULL means "take all" for that dim
   idx <- rep(list(TRUE), length(dims))
@@ -75,29 +75,29 @@ method(isel, Variable) <- function(x, ...) {
   if (length(new_dims) == 0L) {
     # scalar result
     return(Variable(dims = character(), data = array(as.vector(result)),
-                    attrs = x@attrs))
+                    attrs = .data@attrs))
   }
 
   # drop the singleton dimensions
   new_shape <- dim(result)[!dims %in% drop_dims]
   dim(result) <- new_shape
 
-  Variable(dims = new_dims, data = result, attrs = x@attrs)
+  Variable(dims = new_dims, data = result, attrs = .data@attrs)
 }
 
 
-method(isel, DataArray) <- function(x, ...) {
+method(isel, DataArray) <- function(.data, ...) {
   selections <- list(...)
-  if (length(selections) == 0L) return(x)
+  if (length(selections) == 0L) return(.data)
 
   # apply isel to the underlying Variable
-  new_var <- isel(x@variable, ...)
+  new_var <- isel(.data@variable, ...)
 
   # slice coordinates
-  s <- shape(x@variable)
+  s <- shape(.data@variable)
   new_coords <- list()
-  for (nm in names(x@coords)) {
-    coord <- x@coords[[nm]]
+  for (nm in names(.data@coords)) {
+    coord <- .data@coords[[nm]]
     cdim <- coord_dim(coord)
     if (cdim %in% names(selections)) {
       sel_idx <- selections[[cdim]]
@@ -111,15 +111,15 @@ method(isel, DataArray) <- function(x, ...) {
     }
   }
 
-  DataArray(variable = new_var, coords = new_coords, name = x@name)
+  DataArray(variable = new_var, coords = new_coords, name = .data@name)
 }
 
 
-method(isel, Dataset) <- function(x, ...) {
+method(isel, Dataset) <- function(.data, ...) {
   selections <- list(...)
-  if (length(selections) == 0L) return(x)
+  if (length(selections) == 0L) return(.data)
 
-  new_vars <- lapply(x@data_vars, function(v) {
+  new_vars <- lapply(.data@data_vars, function(v) {
     # only apply selections for dims this variable has
     v_sels <- selections[names(selections) %in% v@dims]
     if (length(v_sels) == 0L) return(v)
@@ -127,8 +127,8 @@ method(isel, Dataset) <- function(x, ...) {
   })
 
   new_coords <- list()
-  for (nm in names(x@coords)) {
-    coord <- x@coords[[nm]]
+  for (nm in names(.data@coords)) {
+    coord <- .data@coords[[nm]]
     cdim <- coord_dim(coord)
     if (cdim %in% names(selections)) {
       sel_idx <- selections[[cdim]]
@@ -139,7 +139,7 @@ method(isel, Dataset) <- function(x, ...) {
     }
   }
 
-  Dataset(data_vars = new_vars, coords = new_coords, attrs = x@attrs)
+  Dataset(data_vars = new_vars, coords = new_coords, attrs = .data@attrs)
 }
 
 
@@ -147,11 +147,11 @@ method(isel, Dataset) <- function(x, ...) {
 
 #' @rdname indexing
 #' @export
-sel <- new_generic("sel", "x")
+sel <- new_generic("sel", ".data")
 
-method(sel, DataArray) <- function(x, ...) {
+method(sel, DataArray) <- function(.data, ...) {
   selections <- list(...)
-  if (length(selections) == 0L) return(x)
+  if (length(selections) == 0L) return(.data)
 
   # convert coordinate values to integer indices
   int_sels <- list()
@@ -159,7 +159,7 @@ method(sel, DataArray) <- function(x, ...) {
     val <- selections[[d]]
     # find the coord for this dim
     coord <- NULL
-    for (c in x@coords) {
+    for (c in .data@coords) {
       if (coord_dim(c) == d) { coord <- c; break }
     }
     if (is.null(coord)) {
@@ -180,20 +180,20 @@ method(sel, DataArray) <- function(x, ...) {
     }
   }
 
-  do.call(isel, c(list(x), int_sels))
+  do.call(isel, c(list(.data), int_sels))
 }
 
 
-method(sel, Dataset) <- function(x, ...) {
+method(sel, Dataset) <- function(.data, ...) {
   selections <- list(...)
-  if (length(selections) == 0L) return(x)
+  if (length(selections) == 0L) return(.data)
 
   # convert to integer indices using dataset coords
   int_sels <- list()
   for (d in names(selections)) {
     val <- selections[[d]]
     coord <- NULL
-    for (c in x@coords) {
+    for (c in .data@coords) {
       if (coord_dim(c) == d) { coord <- c; break }
     }
     if (is.null(coord))
@@ -210,5 +210,5 @@ method(sel, Dataset) <- function(x, ...) {
     }
   }
 
-  do.call(isel, c(list(x), int_sels))
+  do.call(isel, c(list(.data), int_sels))
 }

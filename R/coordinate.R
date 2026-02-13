@@ -28,7 +28,7 @@ NULL
 #' @export
 ImplicitCoord <- new_class("ImplicitCoord",
   properties = list(
-    dimension = S7::class_character,
+    dimension = class_character,
     n      = class_integer,
     offset = class_double,
     step   = class_double
@@ -58,7 +58,7 @@ ImplicitCoord <- new_class("ImplicitCoord",
 #' @export
 ExplicitCoord <- new_class("ExplicitCoord",
   properties = list(
-    dimension = S7::class_character,
+    dimension = class_character,
     values = class_any
   ),
   validator = function(self) {

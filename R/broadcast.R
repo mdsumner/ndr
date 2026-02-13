@@ -63,7 +63,7 @@ broadcast_shape <- function(a, b) {
 align_data <- function(v, target_dims) {
   sv <- shape(v)
   dv <- names(sv)
-  arr <- as.array(v)
+  arr <- var_data(v)
 
   if (length(dv) == 0L) {
     # scalar — return with all-1 dims

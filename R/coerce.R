@@ -24,7 +24,7 @@
 #' as.data.frame(da)
 #'
 #' @export
-as.data.frame.DataArray <- function(x, row.names = NULL, optional = FALSE, ...) {
+`as.data.frame.ndr::DataArray` <- function(x, row.names = NULL, optional = FALSE, ...) {
   s <- shape(x@variable)
   dims <- names(s)
 
@@ -59,7 +59,7 @@ as.data.frame.DataArray <- function(x, row.names = NULL, optional = FALSE, ...) 
 #' @param ... Ignored
 #' @return A named list of data.frames, one per data variable
 #' @export
-as.list.Dataset <- function(x, ...) {
+`as.list.ndr::Dataset` <- function(x, ...) {
   lapply(names(x@data_vars), function(nm) {
     da <- x[[nm]]
     as.data.frame(da)

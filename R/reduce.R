@@ -61,7 +61,7 @@ reduce_variable <- function(x, dims, fn, ...) {
   # which axes (integer positions) to KEEP (the MARGIN for apply)
   keep_axes <- which(!all_dims %in% dims)
   new_dims <- all_dims[keep_axes]
-  arr <- as.array(x)
+  arr <- var_data(x)
 
   if (length(keep_axes) == 0L) {
     # reducing all dims → scalar

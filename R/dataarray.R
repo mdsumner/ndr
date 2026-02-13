@@ -26,13 +26,12 @@
 #' )
 #' da
 #'
-#' @importFrom S7 class_character
 #' @export
 DataArray <- new_class("DataArray",
   properties = list(
     variable = Variable,
     coords   = new_property(class_list, default = list()),
-    name     = new_property(S7::class_character, default = character())
+    name     = new_property(class_character, default = character())
   ),
   validator = function(self) {
     v <- self@variable
@@ -69,10 +68,10 @@ method(ndim, DataArray) <- function(x) ndim(x@variable)
 method(shape, DataArray) <- function(x) shape(x@variable)
 
 #' @export
-dim.DataArray <- function(x) dim(x@variable)
+`dim.ndr::DataArray` <- function(x) dim(x@variable)
 
 #' @export
-length.DataArray <- function(x) length(x@variable)
+`length.ndr::DataArray` <- function(x) length(x@variable)
 
 #' @export
-as.array.DataArray <- function(x, ...) as.array(x@variable)
+`as.array.ndr::DataArray` <- function(x, ...) var_data(x@variable)
