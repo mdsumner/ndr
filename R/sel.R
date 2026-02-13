@@ -166,10 +166,12 @@ method(sel, DataArray) <- function(.data, ...) {
       stop(sprintf("no coordinate found for dimension '%s'", d))
     }
 
-    if (length(val) == 2L && is.numeric(val)) {
+    if (length(val) == 2L && is_orderable(val)) {
       # range selection: find all indices between val[1] and val[2]
       all_vals <- coord_values(coord)
-      mask <- all_vals >= min(val) & all_vals <= max(val)
+      lo <- min(val)
+      hi <- max(val)
+      mask <- all_vals >= lo & all_vals <= hi
       int_sels[[d]] <- which(mask)
     } else if (length(val) == 1L) {
       # single value: nearest lookup
@@ -199,9 +201,11 @@ method(sel, Dataset) <- function(.data, ...) {
     if (is.null(coord))
       stop(sprintf("no coordinate found for dimension '%s'", d))
 
-    if (length(val) == 2L && is.numeric(val)) {
+    if (length(val) == 2L && is_orderable(val)) {
       all_vals <- coord_values(coord)
-      mask <- all_vals >= min(val) & all_vals <= max(val)
+      lo <- min(val)
+      hi <- max(val)
+      mask <- all_vals >= lo & all_vals <= hi
       int_sels[[d]] <- which(mask)
     } else if (length(val) == 1L) {
       int_sels[[d]] <- coord_lookup(coord, val)

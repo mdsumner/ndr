@@ -14,3 +14,18 @@ var_data <- function(x) {
   }
   d
 }
+
+
+#' Check if a value supports range comparison (>=, <=)
+#'
+#' TRUE for numeric, integer, Date, POSIXt, difftime, and anything
+#' with an Ops method that handles comparison. Used by sel() to decide
+#' whether a 2-element vector means "range" or "two specific values".
+#'
+#' @param x A vector
+#' @return Logical
+#' @keywords internal
+#' @noRd
+is_orderable <- function(x) {
+  is.numeric(x) || inherits(x, "Date") || inherits(x, "POSIXt") || inherits(x, "difftime")
+}

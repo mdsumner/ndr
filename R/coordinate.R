@@ -63,7 +63,6 @@ ExplicitCoord <- new_class("ExplicitCoord",
   ),
   validator = function(self) {
     if (length(self@dimension) != 1L) return("dimension must be length 1")
-    if (length(self@values) == 0L) return("values must have length > 0")
     NULL
   }
 )
@@ -78,6 +77,7 @@ ExplicitCoord <- new_class("ExplicitCoord",
 coord_values <- new_generic("coord_values", "x")
 
 method(coord_values, ImplicitCoord) <- function(x) {
+  if (x@n == 0L) return(numeric(0))
   x@offset + seq.int(0L, x@n - 1L) * x@step
 }
 
@@ -108,6 +108,10 @@ method(coord_length, ExplicitCoord) <- function(x) length(x@values)
 coord_lookup <- new_generic("coord_lookup", "x")
 
 method(coord_lookup, ImplicitCoord) <- function(x, value) {
+  # n=0: no valid indices
+  if (x@n == 0L) return(integer(0))
+  # n=1: always index 1 (avoids division by zero when step=0)
+  if (x@n == 1L) return(rep(1L, length(value)))
   # O(1): invert the affine transform
   continuous_idx <- (value - x@offset) / x@step
   idx <- round(continuous_idx) + 1L  # to 1-based
@@ -118,17 +122,24 @@ method(coord_lookup, ImplicitCoord) <- function(x, value) {
 
 method(coord_lookup, ExplicitCoord) <- function(x, value) {
   v <- x@values
-  if (is.numeric(v) && !is.unsorted(v)) {
-    # binary search for nearest
-    vapply(value, function(val) {
-      pos <- findInterval(val, v)
-      if (pos == 0L) return(1L)
-      if (pos == length(v)) return(length(v))
-      # pick the closer of pos and pos+1
-      if (abs(v[pos] - val) <= abs(v[pos + 1L] - val)) pos else pos + 1L
-    }, integer(1))
+  if (is.numeric(v)) {
+    if (!is.unsorted(v)) {
+      # sorted ascending: binary search for nearest
+      vapply(value, function(val) {
+        pos <- findInterval(val, v)
+        if (pos == 0L) return(1L)
+        if (pos == length(v)) return(length(v))
+        # pick the closer of pos and pos+1
+        if (abs(v[pos] - val) <= abs(v[pos + 1L] - val)) pos else pos + 1L
+      }, integer(1))
+    } else {
+      # unsorted (or descending): linear nearest-neighbor
+      vapply(value, function(val) {
+        which.min(abs(v - val))
+      }, integer(1))
+    }
   } else {
-    # exact match
+    # non-numeric (character, Date, factor, etc.): exact match
     match(value, v)
   }
 }
@@ -142,6 +153,14 @@ method(coord_lookup, ExplicitCoord) <- function(x, value) {
 coord_slice <- new_generic("coord_slice", "x")
 
 method(coord_slice, ImplicitCoord) <- function(x, idx) {
+  if (length(idx) == 0L) {
+    return(ImplicitCoord(
+      dimension = x@dimension,
+      n      = 0L,
+      offset = x@offset,
+      step   = x@step
+    ))
+  }
   # check if idx is a regular sequence (contiguous with constant step)
   if (length(idx) <= 1L || all(diff(idx) == diff(idx)[1L])) {
     stride <- if (length(idx) <= 1L) 1L else diff(idx)[1L]

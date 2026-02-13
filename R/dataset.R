@@ -114,12 +114,14 @@ extract_dataarray <- function(ds, var_name) {
 #' @return Named integer vector of all dimensions
 #' @export
 ds_dims <- function(ds) {
-  dim_sizes <- list()
+  dim_sizes <- integer()
   for (v in ds@data_vars) {
     s <- shape(v)
     for (d in names(s)) {
-      dim_sizes[[d]] <- s[d]
+      if (!d %in% names(dim_sizes)) {
+        dim_sizes[d] <- s[d]
+      }
     }
   }
-  unlist(dim_sizes)
+  dim_sizes
 }

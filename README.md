@@ -190,7 +190,7 @@ nd_mean(temp, c("lat", "lon"))
 #> <Variable> (time: 10) double
 nd_mean(temp, c("time", "lat", "lon"))
 #> <Variable> scalar double
-#>   value: 0.03284467
+#>   value: -0.1608415
 ```
 
 ## Datasets
@@ -219,7 +219,7 @@ ds <- Dataset(
 )
 ds
 #> <Dataset>
-#>   Dimensions:  (lat.lat: 180, lon.lon: 360)
+#>   Dimensions:  (lat: 180, lon: 360)
 #>   Coordinates:
 #>     * lat  (lat) -89.5 to 89.5
 #>     * lon  (lon) 0.5 to 359.5
