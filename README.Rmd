@@ -1,0 +1,202 @@
+---
+output: github_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-"
+)
+devtools::load_all()
+```
+
+# ndr
+
+Named-dimension arrays with coordinate-based indexing for R.
+
+The core idea: put **names on dimensions** and **coordinates on axes**, then
+make every operation respect those names. Arithmetic broadcasts by dimension
+name, not position.
+
+## Installation
+
+```r
+## install.packages("remotes")
+remotes::install_github("mdsumner/ndr")
+```
+
+## Variables
+
+A `Variable` is an N-dimensional array that knows its dimension names.
+
+```{r variable}
+library(ndr)
+
+temp_data <- array(rnorm(365 * 180 * 360), dim = c(365, 180, 360))
+v <- Variable(
+  dims = c("time", "lat", "lon"),
+  data = temp_data,
+  attrs = list(units = "K", long_name = "Temperature")
+)
+v
+```
+
+
+Scalars work too:
+
+```{r scalar}
+s <- Variable(dims = character(), data = array(42))
+s
+```
+
+## Coordinates
+
+`ImplicitCoord` defines regular grids with zero memory — just offset, step, and count.
+`ExplicitCoord` holds arbitrary coordinate values.
+
+```{r coords}
+lat <- ImplicitCoord(dimension = "lat", n = 180L, offset = -89.5, step = 1.0)
+coord_values(lat)
+
+coord_lookup(lat, 0)
+
+time <- ExplicitCoord(
+  dimension = "time",
+  values = as.Date("2020-01-01") + 0:364
+)
+coord_length(time)
+```
+
+## DataArrays
+
+A `DataArray` wraps a `Variable` with coordinates for label-based access.
+
+```{r dataarray}
+v <- Variable(
+  dims = c("lat", "lon"),
+  data = matrix(rnorm(180 * 360), 180, 360),
+  attrs = list(units = "K")
+)
+da <- DataArray(
+  variable = v,
+  coords = list(
+    lat = ImplicitCoord(dimension = "lat", n = 180L, offset = -89.5, step = 1.0),
+    lon = ImplicitCoord(dimension = "lon", n = 360L, offset = 0.5, step = 1.0)
+  ),
+  name = "temperature"
+)
+da
+```
+
+## Broadcasting
+
+Arithmetic broadcasts by dimension name. A 3D temperature field times a 2D land mask
+just works — dimensions are aligned by name, not position.
+
+```{r broadcast}
+temp <- Variable(
+  dims = c("time", "lat", "lon"),
+  data = array(rnorm(10 * 3 * 4), dim = c(10, 3, 4))
+)
+mask <- Variable(
+  dims = c("lat", "lon"),
+  data = matrix(c(1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0), 3, 4)
+)
+
+result <- temp * mask
+shape(result)
+
+temp + 273.15
+temp * 2
+```
+
+## Indexing
+
+`sel()` selects by coordinate value. `isel()` selects by integer index.
+
+```{r indexing}
+v <- Variable(dims = c("lat", "lon"), data = matrix(1:12, 3, 4))
+da <- DataArray(
+  variable = v,
+  coords = list(
+    lat = ImplicitCoord(dimension = "lat", n = 3L, offset = -10, step = 10),
+    lon = ImplicitCoord(dimension = "lon", n = 4L, offset = 100, step = 10)
+  )
+)
+
+sel(da, lat = 0)
+sel(da, lat = c(-10, 0))
+isel(da, lon = 1:2)
+isel(da, lat = 2, lon = 3)
+```
+
+## Reductions
+
+Reduce along named dimensions with `nd_mean()`, `nd_sum()`, `nd_min()`, `nd_max()`.
+
+```{r reduce}
+temp <- Variable(
+  dims = c("time", "lat", "lon"),
+  data = array(rnorm(10 * 3 * 4), c(10, 3, 4))
+)
+
+nd_mean(temp, "time")
+nd_mean(temp, c("lat", "lon"))
+nd_mean(temp, c("time", "lat", "lon"))
+```
+
+## Datasets
+
+A `Dataset` holds multiple aligned variables on shared dimensions.
+
+```{r dataset}
+lat <- ImplicitCoord(dimension = "lat", n = 180L, offset = -89.5, step = 1.0)
+lon <- ImplicitCoord(dimension = "lon", n = 360L, offset = 0.5, step = 1.0)
+
+ds <- Dataset(
+  data_vars = list(
+    temperature = Variable(
+      dims = c("lat", "lon"),
+      data = matrix(rnorm(180 * 360), 180, 360),
+      attrs = list(units = "K")
+    ),
+    pressure = Variable(
+      dims = c("lat", "lon"),
+      data = matrix(rnorm(180 * 360), 180, 360),
+      attrs = list(units = "Pa")
+    )
+  ),
+  coords = list(lat = lat, lon = lon),
+  attrs = list(title = "Example dataset")
+)
+ds
+```
+
+## To data frame
+
+`as.data.frame()` on a DataArray gives long-format output for ggplot2/dplyr.
+
+```{r dataframe}
+da <- DataArray(
+  variable = Variable(dims = c("lat", "lon"), data = matrix(1:6, 2, 3)),
+  coords = list(
+    lat = ExplicitCoord(dimension = "lat", values = c(10, 20)),
+    lon = ExplicitCoord(dimension = "lon", values = c(100, 110, 120))
+  ),
+  name = "value"
+)
+as.data.frame(da)
+```
+
+## Scope
+
+This is the foundation layer: named-dimension arrays with correct broadcasting,
+coordinate-based indexing, and reductions. No file backends, no lazy evaluation,
+no chunked compute. Those come later as separate packages that build on this.
+
+## Code of Conduct
+ 
+Please note that the ndr project is released with a [Contributor Code of Conduct](https://contributor-covenant.org/version/2/1/CODE_OF_CONDUCT.html). By contributing to this project, you agree to abide by its terms.
