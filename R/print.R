@@ -1,0 +1,178 @@
+#' Print methods for ndr objects
+#'
+#' Displays dimension names, shapes, coordinate info, and attributes
+#' without loading or touching the underlying data.
+#'
+#' @name print-methods
+NULL
+
+
+#' @export
+method(print, Variable) <- function(x, ...) {
+  s <- shape(x)
+  dtype <- typeof(x@data)
+
+  if (length(s) == 0L) {
+    cat(sprintf("<Variable> scalar %s\n", dtype))
+    cat(sprintf("  value: %s\n", format(x@data[1])))
+  } else {
+    shape_str <- paste(sprintf("%s: %d", names(s), s), collapse = ", ")
+    cat(sprintf("<Variable> (%s) %s\n", shape_str, dtype))
+  }
+
+  if (length(x@attrs) > 0L) {
+    cat("  Attributes:\n")
+    for (nm in names(x@attrs)) {
+      val <- x@attrs[[nm]]
+      cat(sprintf("    %s: %s\n", nm, format_attr_value(val)))
+    }
+  }
+
+  invisible(x)
+}
+
+
+#' @export
+method(print, ImplicitCoord) <- function(x, ...) {
+  end_val <- x@offset + (x@n - 1L) * x@step
+  cat(sprintf(
+    "<ImplicitCoord> '%s' [%g, %g, ..., %g] (n=%d, step=%g)\n",
+    x@dimension, x@offset, x@offset + x@step, end_val, x@n, x@step
+  ))
+  invisible(x)
+}
+
+
+#' @export
+method(print, ExplicitCoord) <- function(x, ...) {
+  n <- length(x@values)
+  cls <- class(x@values)[1]
+  if (n <= 4L) {
+    vals <- paste(format(x@values), collapse = ", ")
+  } else {
+    vals <- paste(
+      c(format(x@values[1:2]), "...", format(x@values[(n-1):n])),
+      collapse = ", "
+    )
+  }
+  cat(sprintf("<ExplicitCoord> '%s' %s[%d]: %s\n", x@dimension, cls, n, vals))
+  invisible(x)
+}
+
+
+#' @export
+method(print, DataArray) <- function(x, ...) {
+  s <- shape(x@variable)
+  dtype <- typeof(x@variable@data)
+  nm <- if (length(x@name) > 0L) x@name else "(unnamed)"
+
+  cat(sprintf("<DataArray> '%s'\n", nm))
+
+  # dimensions
+  if (length(s) > 0L) {
+    shape_str <- paste(sprintf("%s: %d", names(s), s), collapse = ", ")
+    cat(sprintf("  Dimensions:  (%s)\n", shape_str))
+  }
+
+  # coordinates
+  if (length(x@coords) > 0L) {
+    cat("  Coordinates:\n")
+    for (cnm in names(x@coords)) {
+      coord <- x@coords[[cnm]]
+      cat(sprintf("    * %s  %s\n", cnm, format_coord_summary(coord)))
+    }
+  }
+
+  # data type + size
+  nbytes <- as.numeric(length(x@variable)) * switch(dtype,
+    double = 8, integer = 4, logical = 4, complex = 16, 8
+  )
+  cat(sprintf("  dtype: %s  (%s)\n", dtype, format_bytes(nbytes)))
+
+  # attrs
+  if (length(x@variable@attrs) > 0L) {
+    cat("  Attributes:\n")
+    for (anm in names(x@variable@attrs)) {
+      cat(sprintf("    %s: %s\n", anm, format_attr_value(x@variable@attrs[[anm]])))
+    }
+  }
+
+  invisible(x)
+}
+
+
+#' @export
+method(print, Dataset) <- function(x, ...) {
+  cat("<Dataset>\n")
+
+  # all dims
+  dims <- ds_dims(x)
+  if (length(dims) > 0L) {
+    dim_str <- paste(sprintf("%s: %d", names(dims), dims), collapse = ", ")
+    cat(sprintf("  Dimensions:  (%s)\n", dim_str))
+  }
+
+  # coords
+  if (length(x@coords) > 0L) {
+    cat("  Coordinates:\n")
+    for (cnm in names(x@coords)) {
+      coord <- x@coords[[cnm]]
+      cat(sprintf("    * %s  %s\n", cnm, format_coord_summary(coord)))
+    }
+  }
+
+  # data variables
+  if (length(x@data_vars) > 0L) {
+    cat("  Data variables:\n")
+    for (vnm in names(x@data_vars)) {
+      v <- x@data_vars[[vnm]]
+      s <- shape(v)
+      dtype <- typeof(v@data)
+      dim_str <- paste(names(s), collapse = ", ")
+      cat(sprintf("    %-20s (%s) %s\n", vnm, dim_str, dtype))
+    }
+  }
+
+  # attrs
+  if (length(x@attrs) > 0L) {
+    cat("  Attributes:\n")
+    for (anm in names(x@attrs)) {
+      cat(sprintf("    %s: %s\n", anm, format_attr_value(x@attrs[[anm]])))
+    }
+  }
+
+  invisible(x)
+}
+
+
+# --- helpers ---
+
+format_coord_summary <- function(coord) {
+  if (S7_inherits(coord, ImplicitCoord)) {
+    end_val <- coord@offset + (coord@n - 1L) * coord@step
+    sprintf("(%s) %g to %g", coord@dimension, coord@offset, end_val)
+  } else {
+    n <- coord_length(coord)
+    vals <- coord@values
+    cls <- class(vals)[1]
+    if (n <= 3L) {
+      sprintf("(%s) %s [%s]", coord@dimension, cls, paste(format(vals), collapse=", "))
+    } else {
+      sprintf("(%s) %s %s ... %s", coord@dimension, cls, format(vals[1]), format(vals[n]))
+    }
+  }
+}
+
+format_attr_value <- function(val) {
+  if (is.character(val) && length(val) == 1L) return(val)
+  if (length(val) == 1L) return(format(val))
+  if (length(val) <= 5L) return(paste(format(val), collapse = ", "))
+  paste0(paste(format(val[1:3]), collapse = ", "), ", ... (", length(val), " values)")
+}
+
+format_bytes <- function(nbytes) {
+  if (nbytes < 1024) return(sprintf("%d B", nbytes))
+  if (nbytes < 1024^2) return(sprintf("%.1f kB", nbytes / 1024))
+  if (nbytes < 1024^3) return(sprintf("%.1f MB", nbytes / 1024^2))
+  sprintf("%.1f GB", nbytes / 1024^3)
+}
