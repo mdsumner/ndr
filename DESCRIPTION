@@ -33,3 +33,5 @@ Collate:
     'reduce.R'
     'print.R'
     'coerce.R'
+URL: https://github.com/mdsumner/ndr
+BugReports: https://github.com/mdsumner/ndr/issues
