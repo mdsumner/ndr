@@ -1,6 +1,11 @@
 # ndr Backend Roadmap
 
-Status of components that are expected to align with ndr, and what they need.
+Status of components that align with ndr, and what they need.
+
+*Last updated: 2026-02-14. gdalraster multidim-api branch (a698eb5) is
+feature-complete for ndr backend integration. All originally identified
+issues resolved. The backend is ready to build.*
+
 
 ## The minimal backend contract
 
@@ -32,149 +37,153 @@ Everything above this — broadcasting, sel/isel, reductions, print — is ndr's
 The backend is just a reader.
 
 
-## 1. gdalraster multidim-api branch
+## 1. gdalraster multidim-api branch — ✅ READY
 
-### What exists (Jan 2026)
+### API surface (Feb 2026, a698eb5)
 
-The branch exposes GDAL's multidim C++ classes via Rcpp:
+Complete end-to-end multidim read pipeline. Tested against local NetCDF (OISST)
+and remote kerchunk-parquet (BRAN2023 12TB via `/vsicurl/`).
 
-| R method | GDAL C++ | Status | Notes |
-|----------|----------|--------|-------|
-| `new(GDALMultiDimRaster, dsn, ...)` | `GDALDataset::Open(OF_MULTIDIM_RASTER)` | ✅ works | Opens any GDAL-supported multidim source |
-| `ds$getRootGroup()` | `GDALDataset::GetRootGroup()` | ✅ works | Returns GDALGroup pointer |
-| `ds$getArrayNames()` | `GDALGroup::GetMDArrayNames()` | ✅ works | Lists all arrays including coords |
-| `ds$openArrayFromFullname(path, opts)` | `GDALGroup::OpenMDArrayFromFullname()` | ✅ works | Returns MDArray pointer |
-| `ds$getDriverLongName()` | `GDALDriver::GetDescription()` | ✅ works | |
-| `ds$getFileList()` | `GDALDataset::GetFileList()` | ✅ works | |
-| `ds$readOnly` | — | ✅ works | Property |
+| Function / Method | Status | Notes |
+|-------------------|--------|-------|
+| `new(GDALMultiDimRaster, dsn, ...)` | ✅ | Opens any GDAL-supported multidim source |
+| `ds$getArrayNames()` | ✅ | Lists all arrays including coords |
+| `ds$openArrayFromFullname(path, opts)` | ✅ | Returns MDArray pointer |
+| `ds$getRootGroup()` | ✅ | Returns GDALGroup pointer |
+| `ds$close()` | ✅ | |
+| `mdim_array_info(arr)` | ✅ | dim_names, shape, dtype, unit, nodata, scale, offset |
+| `mdim_array_read(arr, start, count, step, decode)` | ✅ | Flat vector + `$gis` attribute |
+| `mdim_dim_values(arr, dim_index)` | ✅ | Coordinate values for a dimension |
+| `mdim_coord_info(arr, dim_index)` | ✅ | Dim metadata including CF units + calendar |
+| `mdim_array_attr_names(arr)` | ✅ | List attribute names |
+| `mdim_array_attr(arr, name)` | ✅ | Read attribute (string or numeric) |
+| `mdim_group_attr_names(group)` | ✅ | List group attribute names |
+| `mdim_group_attr(group, name)` | ✅ | Read group attribute |
+| `mdim_group_attrs(group)` | ✅ | All group attributes as named list |
 
-Works with `/vsicurl/` and remote kerchunk-parquet stores already.
+### Output convention: `$gis` attribute
 
-### What's needed for nd_schema()
-
-From the **MDArray pointer**, need to expose:
-
-| R method needed | GDAL C++ method | Purpose for ndr |
-|----------------|-----------------|-----------------|
-| `ar$getDimensionCount()` | `MDArray::GetDimensionCount()` | Number of dims |
-| `ar$getDimensions()` | `MDArray::GetDimensions()` | List of GDALDimension objects |
-| `ar$getDataType()` | `MDArray::GetDataType()` | Map to R type (double, integer, etc.) |
-| `ar$getAttribute(name)` | `MDArray::GetAttribute()` | Individual attr value |
-| `ar$getAttributes()` | `MDArray::GetAttributes()` | All attrs → list |
-| `ar$getScale()` / `ar$getOffset()` | `MDArray::GetScale()` / `GetOffset()` | CF decoding params |
-| `ar$getNoDataValue()` | `MDArray::GetNoDataValueAsDouble()` | _FillValue → NA |
-| `ar$getShape()` | `MDArray::GetDimensions()` → sizes | Dim sizes as integer vector |
-
-From each **GDALDimension**, need:
-
-| R method needed | GDAL C++ method | Purpose for ndr |
-|----------------|-----------------|-----------------|
-| `dim$getName()` | `GDALDimension::GetName()` | Dim name string |
-| `dim$getSize()` | `GDALDimension::GetSize()` | Dim length |
-| `dim$getIndexingVariable()` | `GDALDimension::GetIndexingVariable()` | The coordinate array for this dim |
-
-The indexing variable is key: it's how you discover that the "Time" dimension
-has coordinate values [2024-12-01, 2024-12-02, ...]. Read that once → ExplicitCoord.
-For regular grids, detect regularity from the values → ImplicitCoord.
-
-### What's needed for nd_read()
-
-This is the critical missing piece — actually getting data out:
-
-| R method needed | GDAL C++ method | Purpose for ndr |
-|----------------|-----------------|-----------------|
-| `ar$read(start, count)` | `MDArray::Read(arrayStartIdx, count, arrayStep, bufferStride, bufferDataType, buffer)` | Read a hyperslab into an R array |
-| `ar$getView(spec)` | `MDArray::GetView(viewExpr)` | NumPy-style slicing `"[0,10,100,:]"` → subarray |
-
-Either `read()` or `getView()` works. `getView()` is more convenient
-(returns a new MDArray that can then be read in full), but `read()` with
-start/count is the lower-level primitive. For ndr's `nd_read()`, the mapping is:
+`mdim_array_read()` returns a flat R vector (integer, numeric, or raw depending
+on source type) with a `$gis` attribute carrying all dimensional metadata.
+Matches gdalraster's existing `read_ds()` convention.
 
 ```r
-nd_read <- function(source, var, slices) {
-  ar <- source$openArrayFromFullname(paste0("/", var), "")
-  dims <- ar$getDimensions()
-  full_shape <- vapply(dims, function(d) d$getSize(), integer(1))
+x <- mdim_array_read(arr, start = c(0,0,0), count = c(1,180,360))
+gis <- attr(x, "gis")
+# gis$type      = "multidim"
+# gis$dim       = c(360, 180, 1)           — R (F-order), reversed from GDAL
+# gis$dim_names = c("lon", "lat", "time")  — matches dim order
+# gis$coords    = list(lon=..., lat=..., time=...)  — subsetted to match read
+# gis$datatype  = "Int16"
+# gis$nodata    = 32767
+# gis$scale     = 0.01
+# gis$offset    = 0
+# gis$bbox      = c(0, -90, 360, 90)       — if spatial dims present
+# gis$srs       = "..."                     — if CRS present
+```
 
-  # build start/count from slices (named list of integer indices)
-  start <- rep(0L, length(full_shape))  # 0-based for GDAL
-  count <- full_shape
-  for (d in names(slices)) {
-    i <- match(d, vapply(dims, function(dd) dd$getName(), character(1)))
-    start[i] <- min(slices[[d]]) - 1L  # to 0-based
-    count[i] <- length(slices[[d]])
+Key design decisions (documented in `mdim-api-design-notes.md`):
+
+- **Dim order in R order**: `$gis$dim` and `$gis$dim_names` are reversed from
+  GDAL's C-order. `array(x, gis$dim)` produces correct R array indexing.
+- **Coords subsetted**: `$gis$coords` contains only coordinates matching the
+  hyperslab read, not full dimension extent.
+- **Type mapping**: Byte→raw, Int8–Int32→integer, UInt32+/Float→numeric.
+- **CF decode**: `decode=TRUE` (default) applies scale/offset and nodata→NA.
+- **Hyperslab**: start is 0-based, count is output size, step is source stride.
+  All in GDAL order (reversed from R dim order).
+
+### Mapping to ndr backend
+
+The `$gis` attribute makes the mapping direct — no `aperm()`, no name reversal,
+no manual coord slicing:
+
+```r
+nd_read_gdal <- function(ds, var, start = NULL, count = NULL) {
+  arr <- ds$openArrayFromFullname(paste0("/", var), character())
+  x <- mdim_array_read(arr, start = start, count = count, decode = TRUE)
+  gis <- attr(x, "gis")
+  Variable(dims = gis$dim_names, data = array(x, dim = gis$dim))
+}
+
+nd_schema_gdal <- function(dsn) {
+  ds <- new(GDALMultiDimRaster, dsn, TRUE, character(), FALSE)
+  array_names <- ds$getArrayNames()
+  vars <- list(); coords <- list()
+
+  for (nm in array_names) {
+    arr <- ds$openArrayFromFullname(paste0("/", nm), character())
+    info <- mdim_array_info(arr)
+
+    if (length(info$dim_names) == 1L && info$dim_names == nm) {
+      # Coordinate array
+      vals <- mdim_dim_values(arr, 0)
+      ci <- mdim_coord_info(arr, 0)
+      # Detect time and decode if CF units present
+      if (ci$type == "TEMPORAL" && !is.null(ci$units)) {
+        vals <- cf_decode_time(vals, ci$units, ci$calendar)
+      }
+      coords[[nm]] <- if (is_regular(vals)) {
+        ImplicitCoord(dimension = nm, n = length(vals),
+                      offset = vals[1], step = diff(vals[1:2]))
+      } else {
+        ExplicitCoord(dimension = nm, values = vals)
+      }
+    } else {
+      # Data variable
+      all_attrs <- list(unit = info$unit)
+      for (a in mdim_array_attr_names(arr)) {
+        all_attrs[[a]] <- mdim_array_attr(arr, a)
+      }
+      vars[[nm]] <- list(dims = info$dim_names, dtype = info$dtype,
+                         attrs = all_attrs)
+    }
   }
 
-  raw <- ar$read(start, count)  # returns numeric vector
-  result <- array(raw, dim = count)
+  # Group attrs
+  root <- ds$getRootGroup()
+  global_attrs <- mdim_group_attrs(root)
+  ds$close()
 
-  # CF decode
-  scale <- ar$getScale()
-  offset <- ar$getOffset()
-  nodata <- ar$getNoDataValue()
-  if (!is.null(nodata)) result[result == nodata] <- NA
-  if (!is.null(scale)) result <- result * scale + (offset %||% 0)
-
-  result
+  list(dims = ..., coords = coords, vars = vars, attrs = global_attrs)
 }
 ```
 
-### Priority for gdalraster multidim
+### Issue tracking
 
-1. **MDArray::GetDimensions() exposure** — names and sizes. This unblocks `nd_schema()`.
-2. **MDArray::Read() or GetView()** — data extraction. This unblocks `nd_read()`.
-3. **GDALDimension::GetIndexingVariable()** — coordinate discovery. This makes coords automatic.
-4. **Attribute access** — metadata. Nice to have, not blocking.
+See `gdalraster-mdim-api-requests.md` for the full history. Summary:
 
-Items 1-2 are the minimum viable backend. Item 3 makes it good.
+| # | Issue | Resolution |
+|---|-------|-----------|
+| 1 | Dim order reversal | ✅ Documented convention — R order in `$gis` |
+| 2 | String attrs fail | ✅ Fixed df7bd08ea |
+| 3 | Group-level attrs | ✅ Added df7bd08ea |
+| 4 | Subgroup navigation | Open — not needed yet, low-level API exists |
+| 5 | Step/stride | ✅ Always worked |
+| 6 | $gis attribute | ✅ Added a698eb5 |
+
+See `mdim-api-design-notes.md` for detailed design rationale.
 
 
 ## 2. GDAL7 SWIG bindings (longer term)
 
-The SWIG route would expose the same C++ API but auto-generated, so you'd
-get the full surface area without hand-writing Rcpp wrappers. Advantages:
+The SWIG route would expose the same C++ API but auto-generated. Advantages:
+complete API coverage, stays in sync with GDAL releases, mirrors Python bindings.
+Disadvantages: GDAL7 not released yet, SWIG R code is not idiomatic, build complexity.
 
-- Complete API coverage by default (every method, not just what's wrapped)
-- Stays in sync with GDAL releases automatically
-- The Python GDAL bindings use this same SWIG path, so the R API would mirror Python's
-
-Disadvantages:
-
-- GDAL7 isn't released yet
-- SWIG-generated R code is not idiomatic
-- Build complexity
-
-For now: gdalraster multidim branch is the near-term path. GDAL7 SWIG is
-the escape hatch if wrapping individual methods becomes unsustainable.
-The ndr backend contract doesn't care which one is underneath.
+The ndr backend contract doesn't care which is underneath. gdalraster multidim
+is the near-term path; GDAL7 SWIG is the escape hatch if hand-wrapping becomes
+unsustainable.
 
 
 ## 3. tidync (complementary, NetCDF-only)
 
-### What exists
-
-tidync is already complete for its scope:
-
-| tidync function | ndr equivalent | Status |
-|----------------|----------------|--------|
-| `tidync(file)` | `nd_schema()` — returns full schema | ✅ |
-| `hyper_filter()` | coordinate-to-index translation (like `sel()`) | ✅ |
-| `hyper_array()` | `nd_read()` — returns R array with dim set | ✅ |
-| `hyper_tbl_cube()` | `as.data.frame()` equivalent | ✅ |
-| dim/var metadata | attrs, dim names, coord values | ✅ |
-
-### Bridge needed
-
-The tidync → ndr bridge is thin, probably a single function:
+tidync is already complete for its scope. The bridge to ndr is thin:
 
 ```r
 as_dataset.tidync <- function(x, ...) {
-  # x is a tidync object (already has schema loaded)
-  schema <- x  # tidync objects ARE the schema
-
-  # build coords from tidync's dimension info
-  coords <- lapply(schema$dimension, function(d) {
-    vals <- d$values  # tidync already read these
+  coords <- lapply(x$dimension, function(d) {
+    vals <- d$values
     if (is_regular(vals)) {
       ImplicitCoord(dimension = d$name, n = length(vals),
                     offset = vals[1], step = diff(vals[1:2]))
@@ -182,83 +191,60 @@ as_dataset.tidync <- function(x, ...) {
       ExplicitCoord(dimension = d$name, values = vals)
     }
   })
-
-  # build variable stubs (no data yet)
-  data_vars <- lapply(schema$variable, function(v) {
-    Variable(dims = v$dim_names,
-             data = array(NA, dim = v$dim_sizes),  # placeholder
+  data_vars <- lapply(x$variable, function(v) {
+    Variable(dims = v$dim_names, data = array(NA, dim = v$dim_sizes),
              attrs = v$attrs)
   })
-
-  Dataset(data_vars = data_vars, coords = coords, attrs = schema$attrs)
+  Dataset(data_vars = data_vars, coords = coords, attrs = x$attrs)
 }
 ```
 
-This is already doable today. Low priority because GDAL covers the same
-files, but useful for the large existing tidync user base.
+Low priority — GDAL covers the same files. Useful for existing tidync users.
 
 
 ## 4. Arrow (interchange, not engine)
 
-### Role
-
-Not a backend in the "read files" sense. Arrow's role:
-
-- **Parquet reading**: kerchunk-parquet stores are Parquet files. Arrow reads them
-  natively. But GDAL already handles this path for Zarr access, so Arrow isn't
-  needed here unless you want to bypass GDAL.
-- **Zero-copy interchange**: if a backend returns Arrow arrays, ndr can hold them
-  in `Variable@data` (which accepts `class_any`). No copy on construction.
-- **Columnar ops**: Arrow compute kernels (filter, aggregate) could power
-  reductions on Arrow-backed Variables without materializing to R arrays.
-
-### When it matters
-
-Arrow becomes interesting when:
-- Data is already in Arrow format (Parquet tables, IPC files)
-- Memory pressure requires avoiding copies
-- Compute kernels are faster than base R for reductions
-
-None of these are blocking for ndr 0.x. Arrow is a performance path, not a
-functionality path.
+Not a file-reading backend. Arrow's role is zero-copy interchange,
+compression-aware reading, and compute kernels for reductions. Becomes
+interesting when data is already in Arrow format or memory pressure requires
+avoiding copies. Not blocking for ndr 0.x.
 
 
 ## 5. What ndr itself needs to support backends
 
-ndr 0.1.0 is pure in-memory. To support backends, ndr needs:
+ndr 0.1.0 is pure in-memory. To support backends:
 
-| Feature | Purpose | Complexity |
-|---------|---------|------------|
-| `open_dataset()` generic | Entry point that dispatches to backends | Low — just a generic |
-| Backend registration | `register_backend("gdal", gdal_open)` or S3/S7 dispatch | Low |
-| Lazy Variable | Variable where `@data` is a promise/callback, not an array | Medium |
-| Chunk-aware read | `nd_read()` only fetches the slices needed by `sel()`/`isel()` | Medium |
-| CF decode pass | Apply scale/offset/fill after read, before user sees data | Low if backend does it |
+| Feature | Purpose | Complexity | Status |
+|---------|---------|------------|--------|
+| `open_dataset()` generic | Entry point dispatching to backends | Low | Ready to build |
+| Backend registration | S7 dispatch on source type | Low | Ready to build |
+| CF time decode | Parse "days since ..." to R Date/POSIXct | Low | Ready to build |
+| Lazy Variable | `@data` is a callback, not an array | Medium | Future |
+| Chunk-aware read | `sel()`/`isel()` calls `nd_read()` on demand | Medium | Future |
 
-The first two are trivial. Lazy Variable is where it gets interesting —
-this is where ndr stops being pure in-memory and becomes a front-end
-for arbitrary data sources. But even without lazy evaluation, a simple
-`open_dataset()` that reads everything into memory (fine for small-to-medium
-datasets) is useful and can be implemented immediately once a backend
-can do `nd_schema()` + `nd_read()`.
+An eager `open_dataset()` that reads everything into memory is the immediate
+next step. Lazy evaluation comes later.
 
 
 ## Summary: what blocks what
 
 ```
-ndr 0.1.0 (done)
+ndr 0.1.0 (done, 82 tests)
   │
-  ├─ gdalraster multidim: needs MDArray read + dimension exposure
-  │   ├─ nd_schema(): needs getDimensions(), getAttributes()
-  │   ├─ nd_read(): needs Read() or GetView()  ← critical gap
-  │   └─ coords: needs getIndexingVariable()
+  ├─ gdalraster multidim-api (a698eb5) ✅ READY
+  │   ├─ nd_schema(): ✅ mdim_array_info + mdim_dim_values + mdim_coord_info
+  │   ├─ nd_read():   ✅ mdim_array_read with $gis attribute
+  │   ├─ attrs:       ✅ mdim_array_attr + mdim_group_attrs
+  │   └─ all issues resolved, design documented
   │
   ├─ tidync bridge: could build today, low priority
   │
-  └─ ndr open_dataset() generic: trivial once any backend exists
-      └─ lazy Variable: medium effort, needed for large data
-          └─ chunk-aware isel/sel: rewire to call nd_read() on demand
+  └─ ndr open_dataset()  ← NEXT STEP
+      ├─ eager mode: read all into memory via gdalraster — build now
+      ├─ CF time decode: parse units string to R Date — build now
+      └─ lazy mode: read on sel/isel demand — build later
 ```
 
-The critical path is: **gdalraster exposes MDArray::Read()** → ndr gets
-`open_dataset()` → the BRAN2023 12TB example works end-to-end in R.
+Next concrete step: implement `open_dataset()` in ndr calling gdalraster
+multidim, returning a Dataset with coordinates and variables populated.
+Start eager (read everything), add lazy evaluation once the API is proven.
