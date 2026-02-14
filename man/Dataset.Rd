@@ -4,7 +4,7 @@
 \alias{Dataset}
 \title{Dataset: a collection of aligned Variables on shared dimensions}
 \usage{
-Dataset(data_vars = list(), coords = list(), attrs = list())
+Dataset(data_vars = list(), coords = list(), attrs = list(), .backend = NULL)
 }
 \arguments{
 \item{data_vars}{Named list of Variable objects.}
@@ -12,6 +12,8 @@ Dataset(data_vars = list(), coords = list(), attrs = list())
 \item{coords}{Named list of coordinate objects (ImplicitCoord or ExplicitCoord).}
 
 \item{attrs}{Named list of global metadata.}
+
+\item{.backend}{Backend reader (internal, created by \code{\link[=open_dataset]{open_dataset()}}).}
 }
 \description{
 A Dataset holds multiple data variables that share a common set of
