@@ -28,7 +28,7 @@ test_that("cf_decode_time decodes days since", {
   expect_s3_class(dates, "Date")
   expect_equal(dates[1], as.Date("2020-01-01"))
   expect_equal(dates[2], as.Date("2020-01-02"))
-  expect_equal(dates[3], as.Date("2021-01-01"))  # 2020 is leap year
+  expect_equal(dates[3], as.Date("2020-12-31"))  # 2020 is a leap year, 365 days = Dec 31
 })
 
 test_that("cf_decode_time decodes hours since", {
