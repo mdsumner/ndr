@@ -25,6 +25,8 @@ export(nd_min)
 export(nd_max)
 export(ds_dims)
 export(as_variable)
+export(open_dataset)
+export(cf_decode_time)
 
 # S3 methods (class names match S7's "pkg::Class" format)
 S3method(dim, "ndr::Variable")

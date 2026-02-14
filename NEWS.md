@@ -1,3 +1,23 @@
+# ndr 0.1.0.9000 (development)
+
+## File backends
+
+* `open_dataset()` — read multidimensional data sources into ndr Datasets.
+  Supports any source GDAL's multidim API can read: NetCDF, HDF5, Zarr v2/v3,
+  kerchunk-parquet virtual stores, VRT multidim. Works with local paths and
+  GDAL virtual filesystems (`/vsicurl/`, `/vsis3/`). Requires gdalraster with
+  multidim API (`mdsumner/gdalraster@gdalmultidim-api`).
+* `cf_decode_time()` — decode CF convention time values ("days since ...",
+  "hours since ...") to R Date or POSIXct objects. Used automatically by
+  `open_dataset()` for TEMPORAL dimensions.
+
+## Internal
+
+* `is_regular()` detects regularly-spaced coordinate values to choose between
+  ImplicitCoord and ExplicitCoord when reading from files.
+* gdalraster added to Suggests.
+
+
 # ndr 0.1.0
 
 Initial release. Named-dimension arrays with coordinate-based indexing for R.
