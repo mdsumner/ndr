@@ -45,6 +45,10 @@ var_op <- function(e1, e2, op) {
 #' Apply a DataArray-level op, wrapping scalars as needed
 #' @noRd
 da_op <- function(e1, e2, op) {
+  # Auto-collect lazy operands
+  if (S7_inherits(e1, LazyDataArray)) e1 <- collect(e1)
+  if (S7_inherits(e2, LazyDataArray)) e2 <- collect(e2)
+
   # extract or wrap to Variable level
   v1 <- if (S7_inherits(e1, DataArray)) e1@variable
   else if (S7_inherits(e1, Variable)) e1
@@ -228,3 +232,42 @@ method(`>`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `>`)
 method(`>=`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `>=`)
 method(`>=`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `>=`)
 method(`>=`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `>=`)
+
+
+# --- Unary operators: LazyDataArray (auto-collect) ---
+
+method(`-`, list(LazyDataArray, class_missing)) <- function(e1, e2) -collect(e1)
+method(`+`, list(LazyDataArray, class_missing)) <- function(e1, e2) collect(e1)
+
+
+# --- Binary operators: LazyDataArray (auto-collect) ---
+# da_op already handles auto-collect of LazyDataArray operands,
+# but S7 dispatch needs explicit registrations for LazyDataArray signatures.
+
+.lazy_ops <- list(`+`, `-`, `*`, `/`, `^`, `%%`, `%/%`,
+                  `==`, `!=`, `<`, `<=`, `>`, `>=`)
+
+for (.op in .lazy_ops) {
+  method(.op, list(LazyDataArray, LazyDataArray)) <- (function(op) {
+    force(op)
+    function(e1, e2) da_op(e1, e2, op)
+  })(.op)
+  method(.op, list(LazyDataArray, class_any)) <- (function(op) {
+    force(op)
+    function(e1, e2) da_op(e1, e2, op)
+  })(.op)
+  method(.op, list(class_any, LazyDataArray)) <- (function(op) {
+    force(op)
+    function(e1, e2) da_op(e1, e2, op)
+  })(.op)
+  # Mixed LazyDataArray + DataArray
+  method(.op, list(LazyDataArray, DataArray)) <- (function(op) {
+    force(op)
+    function(e1, e2) da_op(e1, e2, op)
+  })(.op)
+  method(.op, list(DataArray, LazyDataArray)) <- (function(op) {
+    force(op)
+    function(e1, e2) da_op(e1, e2, op)
+  })(.op)
+}
+rm(.lazy_ops, .op)

@@ -102,6 +102,64 @@ method(print, DataArray) <- function(x, ...) {
 
 
 #' @export
+method(print, LazyDataArray) <- function(x, ...) {
+  nm <- if (length(x@name) > 0L) x@name else "(unnamed)"
+
+  cat(sprintf("<LazyDataArray> '%s'  [not loaded]\n", nm))
+
+  # Dimensions with selection info
+  if (length(x@dims) > 0L) {
+    cat("  Dimensions:\n")
+    for (i in seq_along(x@dims)) {
+      dn <- x@dims[i]
+      full_size <- x@dim_sizes[i]
+      sel <- x@.selection[[dn]]
+      if (is.null(sel)) {
+        cat(sprintf("    * %s: %d\n", dn, full_size))
+      } else if (length(sel) == 1L) {
+        cat(sprintf("    * %s: %d -> [%d] (scalar, will drop)\n",
+                    dn, full_size, sel))
+      } else {
+        cat(sprintf("    * %s: %d -> [%d:%d] (%d selected)\n",
+                    dn, full_size, min(sel), max(sel), length(sel)))
+      }
+    }
+  }
+
+  # Coordinates
+  if (length(x@coords) > 0L) {
+    cat("  Coordinates:\n")
+    for (cnm in names(x@coords)) {
+      coord <- x@coords[[cnm]]
+      cat(sprintf("    * %s  %s\n", cnm, format_coord_summary(coord)))
+    }
+  }
+
+  # Estimated size
+  selected_sizes <- vapply(seq_along(x@dims), function(i) {
+    sel <- x@.selection[[x@dims[i]]]
+    if (is.null(sel)) x@dim_sizes[i] else length(sel)
+  }, integer(1L))
+  nbytes <- prod(as.numeric(selected_sizes)) * 8
+  cat(sprintf("  Estimated size: %s\n", format_bytes(nbytes)))
+
+  # Backend info
+  cat(sprintf("  Backend: %s\n", x@.backend$dsn))
+
+  # Attrs
+  if (length(x@attrs) > 0L) {
+    cat("  Attributes:\n")
+    for (anm in names(x@attrs)) {
+      cat(sprintf("    %s: %s\n", anm, format_attr_value(x@attrs[[anm]])))
+    }
+  }
+
+  cat("  Use collect() to materialise data.\n")
+  invisible(x)
+}
+
+
+#' @export
 method(print, Dataset) <- function(x, ...) {
   cat("<Dataset>\n")
 

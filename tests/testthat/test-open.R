@@ -40,17 +40,16 @@ test_that("lazy $access triggers read and caches", {
 
   ds <- open_dataset(oisst_dsn)
 
-  # Access triggers read
+  # Access returns LazyDataArray (no data read yet)
   da <- ds$sst
-  expect_true(S7_inherits(da, DataArray))
-  expect_true(length(da@variable@data) > 0L)
+  expect_true(S7_inherits(da, LazyDataArray))
+  expect_equal(da@name, "sst")
+  expect_equal(da@dims, c("lon", "lat", "time"))
 
-  # Should be cached in backend
-  expect_true(exists("sst", envir = ds@.backend$cache, inherits = FALSE))
-
-  # Second access should use cache (same object)
-  da2 <- ds$sst
-  expect_identical(da@variable@data, da2@variable@data)
+  # collect() materialises data
+  da_mat <- collect(da)
+  expect_true(S7_inherits(da_mat, DataArray))
+  expect_true(length(da_mat@variable@data) > 0L)
 })
 
 test_that("ds_dims includes lazy variable dimensions", {
@@ -76,9 +75,13 @@ test_that("open_dataset with vars scopes to those vars", {
   expect_length(ds@data_vars, 0L)
   expect_equal(names(ds@.backend$schemas), "sst")
 
-  # Access triggers read
+  # Access returns LazyDataArray
   da <- ds$sst
-  expect_true(S7_inherits(da, DataArray))
+  expect_true(S7_inherits(da, LazyDataArray))
+
+  # collect() materialises
+  da_mat <- collect(da)
+  expect_true(S7_inherits(da_mat, DataArray))
 })
 
 test_that("vars = character() gives schema only", {
@@ -151,10 +154,18 @@ test_that("lazy open_dataset integrates with ndr operations", {
   # sel/isel on lazily-loaded variable
   da <- ds$sst
   da_t1 <- isel(da, time = 1L)
+  # Still lazy after isel
+  expect_true(S7_inherits(da_t1, LazyDataArray))
   expect_equal(ndim(da_t1), 2L)
 
   da_region <- sel(da, lat = c(-10, 10), lon = c(150, 200))
+  expect_true(S7_inherits(da_region, LazyDataArray))
   expect_true(all(dim(da_region) > 0L))
+
+  # collect() works
+  da_region_mat <- collect(da_region)
+  expect_true(S7_inherits(da_region_mat, DataArray))
+  expect_true(all(dim(da_region_mat) > 0L))
 })
 
 

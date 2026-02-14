@@ -133,3 +133,22 @@ method(nd_min, DataArray) <- function(x, dims, na.rm = FALSE) {
 method(nd_max, DataArray) <- function(x, dims, na.rm = FALSE) {
   reduce_dataarray(x, dims, nd_max, na.rm = na.rm)
 }
+
+
+# --- LazyDataArray methods: auto-collect then reduce ---
+
+method(nd_mean, LazyDataArray) <- function(x, dims, na.rm = FALSE) {
+  nd_mean(collect(x), dims, na.rm = na.rm)
+}
+
+method(nd_sum, LazyDataArray) <- function(x, dims, na.rm = FALSE) {
+  nd_sum(collect(x), dims, na.rm = na.rm)
+}
+
+method(nd_min, LazyDataArray) <- function(x, dims, na.rm = FALSE) {
+  nd_min(collect(x), dims, na.rm = na.rm)
+}
+
+method(nd_max, LazyDataArray) <- function(x, dims, na.rm = FALSE) {
+  nd_max(collect(x), dims, na.rm = na.rm)
+}

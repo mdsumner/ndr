@@ -186,6 +186,81 @@ method(sel, DataArray) <- function(.data, ...) {
 }
 
 
+# --- LazyDataArray methods: accumulate selections without reading ---
+
+method(isel, LazyDataArray) <- function(.data, ...) {
+  selections <- list(...)
+  if (length(selections) == 0L) return(.data)
+
+  new_selection <- .data@.selection
+
+  for (d in names(selections)) {
+    if (!d %in% .data@dims) {
+      stop(sprintf("dimension '%s' not found (available: %s)",
+                   d, paste(.data@dims, collapse = ", ")))
+    }
+    val <- as.integer(selections[[d]])
+
+    prev <- new_selection[[d]]
+    if (is.null(prev)) {
+      # First selection on this dimension: store directly
+      new_selection[[d]] <- val
+    } else {
+      # Compose: previous selection already narrowed the indices.
+      # New indices are relative to the already-narrowed dimension,
+      # so translate: new absolute indices = prev[val]
+      new_selection[[d]] <- prev[val]
+    }
+  }
+
+  LazyDataArray(
+    name       = .data@name,
+    dims       = .data@dims,
+    dim_sizes  = .data@dim_sizes,
+    coords     = .data@coords,
+    attrs      = .data@attrs,
+    .selection = new_selection,
+    .backend   = .data@.backend
+  )
+}
+
+
+method(sel, LazyDataArray) <- function(.data, ...) {
+  selections <- list(...)
+  if (length(selections) == 0L) return(.data)
+
+  # Convert coordinate values to integer indices
+  int_sels <- list()
+  for (d in names(selections)) {
+    val <- selections[[d]]
+    coord <- NULL
+    for (c in .data@coords) {
+      if (coord_dim(c) == d) { coord <- c; break }
+    }
+    if (is.null(coord)) {
+      stop(sprintf("no coordinate found for dimension '%s'", d))
+    }
+
+    if (length(val) == 2L && is_orderable(val)) {
+      # Range selection: find all indices between val[1] and val[2]
+      all_vals <- coord_values(coord)
+      lo <- min(val)
+      hi <- max(val)
+      mask <- all_vals >= lo & all_vals <= hi
+      int_sels[[d]] <- which(mask)
+    } else if (length(val) == 1L) {
+      # Single value: nearest lookup
+      int_sels[[d]] <- coord_lookup(coord, val)
+    } else {
+      # Multiple specific values
+      int_sels[[d]] <- coord_lookup(coord, val)
+    }
+  }
+
+  do.call(isel, c(list(.data), int_sels))
+}
+
+
 method(sel, Dataset) <- function(.data, ...) {
   selections <- list(...)
   if (length(selections) == 0L) return(.data)

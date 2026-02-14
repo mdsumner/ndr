@@ -54,6 +54,12 @@
 }
 
 
+#' @export
+`as.data.frame.ndr::LazyDataArray` <- function(x, row.names = NULL, optional = FALSE, ...) {
+  as.data.frame(collect(x), row.names = row.names, optional = optional, ...)
+}
+
+
 #' Convert a Dataset to a list of data frames
 #' @param x A Dataset
 #' @param ... Ignored
