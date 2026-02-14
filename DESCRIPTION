@@ -38,3 +38,4 @@ Collate:
     'open.R'
 URL: https://github.com/mdsumner/ndr
 BugReports: https://github.com/mdsumner/ndr/issues
+Remotes: mdsumner/gdalraster@gdalmultidim-api
