@@ -44,13 +44,22 @@ cf_parse_time_units <- function(units) {
 
 #' Decode CF time values to R Date or POSIXct
 #'
+#' Converts numeric offset values to R Date or POSIXct using CF convention
+#' time units and calendar. For standard/gregorian/proleptic_gregorian
+#' calendars (and NULL, the common case), uses base R date arithmetic.
+#' For non-standard calendars (360_day, noleap/365_day, all_leap/366_day),
+#' delegates to the CFtime package if available.
+#'
 #' @param values Numeric vector of time values (e.g. days since origin)
-#' @param units CF time units string
-#' @param calendar CF calendar type (currently ignored, assumes "standard")
-#' @return Date vector (for whole-day units) or POSIXct
+#' @param units CF time units string (e.g. "days since 1800-01-01")
+#' @param calendar CF calendar type. NULL or "standard"/"gregorian"/
+#'   "proleptic_gregorian" use base R. Non-standard calendars require CFtime.
+#' @return Date vector (for whole-day units on standard calendars),
+#'   POSIXct (for sub-day units), or character timestamps (non-standard
+#'   calendars via CFtime).
 #'
 #' @examples
-#' # OISST: days since 1800-01-01
+#' # OISST: days since 1800-01-01 (standard calendar)
 #' cf_decode_time(c(66443, 66474), "days since 1800-1-1 00:00:00")
 #'
 #' # BRAN: days since 1979-01-01
@@ -58,6 +67,35 @@ cf_parse_time_units <- function(units) {
 #'
 #' @export
 cf_decode_time <- function(values, units, calendar = NULL) {
+  cal <- if (is.null(calendar)) "standard" else tolower(trimws(calendar))
+
+  # Standard calendars: base R arithmetic is correct
+  if (cal %in% c("standard", "gregorian", "proleptic_gregorian", "")) {
+    return(cf_decode_standard(values, units))
+  }
+
+  # Non-standard calendars: delegate to CFtime
+  if (requireNamespace("CFtime", quietly = TRUE)) {
+    return(cf_decode_cftime(values, units, cal))
+  }
+
+  # CFtime not available: warn and return raw numeric
+  warning(sprintf(
+    paste0(
+      "non-standard calendar '%s' requires the CFtime package.\n",
+      "Install with: install.packages(\"CFtime\")\n",
+      "Returning raw numeric time values."
+    ),
+    calendar
+  ))
+  values
+}
+
+
+#' Decode standard calendar times with base R
+#' @keywords internal
+#' @noRd
+cf_decode_standard <- function(values, units) {
   parsed <- cf_parse_time_units(units)
 
   seconds_per <- switch(parsed$unit,
@@ -70,12 +108,29 @@ cf_decode_time <- function(values, units, calendar = NULL) {
 
   posix_vals <- parsed$origin + values * seconds_per
 
-  # Return Date if units are whole days and all values are midnight
+  # Return Date if units are whole days
   if (parsed$unit %in% c("days", "day")) {
     as.Date(posix_vals, tz = "UTC")
   } else {
     posix_vals
   }
+}
+
+
+#' Decode non-standard calendar times via CFtime package
+#' @keywords internal
+#' @noRd
+cf_decode_cftime <- function(values, units, calendar) {
+  cf <- CFtime::CFtime(units, calendar, values)
+  timestamps <- CFtime::as_timestamp(cf)
+  # Try to parse as Date first (most climate data is daily or coarser)
+  dates <- tryCatch(as.Date(timestamps), error = function(e) NULL)
+  if (!is.null(dates) && !anyNA(dates)) return(dates)
+  # Fall back to POSIXct
+  posix <- tryCatch(as.POSIXct(timestamps, tz = "UTC"), error = function(e) NULL)
+  if (!is.null(posix) && !anyNA(posix)) return(posix)
+  # Last resort: return as character timestamps
+  timestamps
 }
 
 

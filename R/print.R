@@ -121,15 +121,30 @@ method(print, Dataset) <- function(x, ...) {
     }
   }
 
-  # data variables
-  if (length(x@data_vars) > 0L) {
+  # data variables (loaded)
+  has_loaded <- length(x@data_vars) > 0L
+  be <- x@.backend
+  has_lazy <- !is.null(be) && length(be$schemas) > 0L
+
+  if (has_loaded || has_lazy) {
     cat("  Data variables:\n")
+    # loaded vars
     for (vnm in names(x@data_vars)) {
       v <- x@data_vars[[vnm]]
       s <- shape(v)
       dtype <- typeof(v@data)
       dim_str <- paste(names(s), collapse = ", ")
       cat(sprintf("    %-20s (%s) %s\n", vnm, dim_str, dtype))
+    }
+    # lazy vars
+    if (has_lazy) {
+      for (vnm in names(be$schemas)) {
+        if (vnm %in% names(x@data_vars)) next  # already shown
+        sc <- be$schemas[[vnm]]
+        dim_str <- paste(sc$dim_names, collapse = ", ")
+        size_str <- format_bytes(prod(as.numeric(sc$dim_sizes)) * 8)
+        cat(sprintf("    %-20s (%s) [not loaded] ~%s\n", vnm, dim_str, size_str))
+      }
     }
   }
 

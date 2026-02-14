@@ -7,12 +7,21 @@
   kerchunk-parquet virtual stores, VRT multidim. Works with local paths and
   GDAL virtual filesystems (`/vsicurl/`, `/vsis3/`). Requires gdalraster with
   multidim API (`mdsumner/gdalraster@gdalmultidim-api`).
+* **Lazy by default**: `open_dataset()` reads only coordinates and metadata.
+  Data variables load on first access via `ds$var_name`, then cache for reuse.
+  This allows opening 12TB+ datasets without reading any array data.
+  Use `vars` to limit which variables are available.
 * `cf_decode_time()` — decode CF convention time values ("days since ...",
   "hours since ...") to R Date or POSIXct objects. Used automatically by
   `open_dataset()` for TEMPORAL dimensions.
 
 ## Internal
 
+* Dataset gains `.backend` property (default NULL) for lazy reading. Existing
+  code that constructs Dataset objects directly is unaffected.
+* `extract_dataarray()` checks backend for lazy vars when not found in
+  `data_vars`. Caches loaded variables for subsequent access.
+* `ds_dims()` and Dataset print include dimensions from lazy variable schemas.
 * `is_regular()` detects regularly-spaced coordinate values to choose between
   ImplicitCoord and ExplicitCoord when reading from files.
 * gdalraster added to Suggests.

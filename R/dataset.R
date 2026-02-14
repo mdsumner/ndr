@@ -7,6 +7,7 @@
 #' @param data_vars Named list of Variable objects.
 #' @param coords Named list of coordinate objects (ImplicitCoord or ExplicitCoord).
 #' @param attrs Named list of global metadata.
+#' @param .backend Backend reader (internal, created by [open_dataset()]).
 #'
 #' @examples
 #' lat <- ImplicitCoord(dimension = "lat", n = 180L, offset = -89.5, step = 1.0)
@@ -35,7 +36,8 @@ Dataset <- new_class("Dataset",
   properties = list(
     data_vars = new_property(class_list, default = list()),
     coords    = new_property(class_list, default = list()),
-    attrs     = new_property(class_list, default = list())
+    attrs     = new_property(class_list, default = list()),
+    .backend  = new_property(class_any, default = NULL)
   ),
   validator = function(self) {
     # build a registry of dim -> size from all variables
@@ -55,6 +57,27 @@ Dataset <- new_class("Dataset",
           }
         } else {
           dim_sizes[[d]] <- s[d]
+        }
+      }
+    }
+    # also register dim sizes from backend schemas (for coord validation)
+    be <- self@.backend
+    if (!is.null(be)) {
+      for (nm in names(be$schemas)) {
+        sc <- be$schemas[[nm]]
+        for (i in seq_along(sc$dim_names)) {
+          d <- sc$dim_names[i]
+          sz <- sc$dim_sizes[i]
+          if (d %in% names(dim_sizes)) {
+            if (dim_sizes[[d]] != sz) {
+              return(sprintf(
+                "dimension '%s' has size %d in lazy variable '%s' but %d elsewhere",
+                d, sz, nm, dim_sizes[[d]]
+              ))
+            }
+          } else {
+            dim_sizes[[d]] <- sz
+          }
         }
       }
     }
@@ -95,17 +118,27 @@ Dataset <- new_class("Dataset",
 }
 
 extract_dataarray <- function(ds, var_name) {
-  if (!var_name %in% names(ds@data_vars))
-    stop(sprintf("no variable '%s' in dataset (available: %s)",
-                 var_name, paste(names(ds@data_vars), collapse = ", ")))
+  # 1. Check already-loaded data vars
+  if (var_name %in% names(ds@data_vars)) {
+    v <- ds@data_vars[[var_name]]
+    vdims <- v@dims
+    relevant_coords <- Filter(function(c) coord_dim(c) %in% vdims, ds@coords)
+    return(DataArray(variable = v, coords = relevant_coords, name = var_name))
+  }
 
-  v <- ds@data_vars[[var_name]]
-  vdims <- v@dims
+  # 2. Check lazy backend
+  be <- ds@.backend
+  if (!is.null(be) && var_name %in% names(be$schemas)) {
+    v <- backend_read_var(be, var_name)
+    vdims <- v@dims
+    relevant_coords <- Filter(function(c) coord_dim(c) %in% vdims, ds@coords)
+    return(DataArray(variable = v, coords = relevant_coords, name = var_name))
+  }
 
-  # select only coords whose dim is in this variable
-  relevant_coords <- Filter(function(c) coord_dim(c) %in% vdims, ds@coords)
-
-  DataArray(variable = v, coords = relevant_coords, name = var_name)
+  # 3. Not found
+  available <- c(names(ds@data_vars), if (!is.null(be)) names(be$schemas))
+  stop(sprintf("no variable '%s' in dataset (available: %s)",
+               var_name, paste(available, collapse = ", ")))
 }
 
 
@@ -115,11 +148,24 @@ extract_dataarray <- function(ds, var_name) {
 #' @export
 ds_dims <- function(ds) {
   dim_sizes <- integer()
+  # from loaded variables
   for (v in ds@data_vars) {
     s <- shape(v)
     for (d in names(s)) {
       if (!d %in% names(dim_sizes)) {
         dim_sizes[d] <- s[d]
+      }
+    }
+  }
+  # from lazy backend schemas
+  be <- ds@.backend
+  if (!is.null(be)) {
+    for (sc in be$schemas) {
+      for (i in seq_along(sc$dim_names)) {
+        d <- sc$dim_names[i]
+        if (!d %in% names(dim_sizes)) {
+          dim_sizes[d] <- sc$dim_sizes[i]
+        }
       }
     }
   }

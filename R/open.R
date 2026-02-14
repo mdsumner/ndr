@@ -10,13 +10,22 @@
 #'
 #' @param dsn Data source name. A file path, URL, or GDAL connection string
 #'   (e.g. `'ZARR:"/vsicurl/https://example.com/store.parq"'`).
-#' @param vars Character vector of variable names to read. Default `NULL` reads
-#'   all data variables. Coordinate arrays are always read.
-#' @param ... Reserved for future use (e.g. `lazy = TRUE`).
+#' @param vars Character vector of variable names to include. Default `NULL`
+#'   includes all data variables. Use `character()` for schema + coords only.
+#'   All variables are loaded lazily on first access via `$`.
+#' @param ... Reserved for future use.
 #'
-#' @return A [Dataset] with data variables, coordinates, and global attributes.
+#' @return A [Dataset] with coordinates, global attributes, and lazy data
+#'   variables that load on first access.
 #'
 #' @details
+#'
+#' ## Lazy loading
+#'
+#' `open_dataset()` reads only coordinates and metadata. Data variables are
+#' loaded on demand when accessed via `ds$var_name`, then cached for reuse.
+#' This allows opening large datasets (e.g. 12TB BRAN2023) without reading
+#' any array data. Use `vars` to limit which variables are available.
 #'
 #' ## Variable classification
 #'
@@ -46,14 +55,20 @@
 #'
 #' @examples
 #' \dontrun{
-#' # Local NetCDF
+#' # Open lazily — no data read yet
 #' ds <- open_dataset("sst.mnmean.nc")
-#' ds$sst
+#' ds  # shows variables with [not loaded]
 #'
-#' # Remote kerchunk-parquet via GDAL virtual filesystem
-#' dsn <- 'ZARR:"/vsicurl/https://raw.githubusercontent.com/mdsumner/virtualized/refs/heads/main/remote/ocean_temp_2023.parq"'
+#' # Access triggers read
+#' ds$sst |> sel(time = as.Date("2020-06-15"), lat = c(-60, -30))
+#'
+#' # Scope to specific variables (still lazy)
+#' ds <- open_dataset("sst.mnmean.nc", vars = "sst")
+#'
+#' # Remote kerchunk-parquet — only sst schema, 12TB never touched
+#' dsn <- 'ZARR:"/vsicurl/https://example.com/store.parq"'
 #' ds <- open_dataset(dsn, vars = "temp")
-#' ds$temp |> sel(Time = as.Date("2010-06-15"), st_ocean = 2.5)
+#' ds$temp  # reads only temp, on demand
 #' }
 #'
 #' @export
@@ -78,10 +93,12 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
   # --- Phase 1: classify arrays as coords or data vars ---
   coord_names <- character()
   data_var_names <- character()
+  var_infos <- list()  # cache array info for all vars
 
   for (nm in array_names) {
     arr <- ds$openArrayFromFullname(paste0("/", nm), character())
     info <- gdalraster_fn("mdim_array_info")(arr)
+    var_infos[[nm]] <- info
 
     ndims <- length(info$dim_names)
     if (ndims == 0L) next  # skip scalar arrays
@@ -93,20 +110,7 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
     # skip: 1D arrays that don't match their dim name (bounds, auxiliary)
   }
 
-  # Apply var filter
-  if (!is.null(vars)) {
-    missing <- setdiff(vars, data_var_names)
-    if (length(missing) > 0L) {
-      stop(sprintf(
-        "requested variable(s) not found: %s\navailable: %s",
-        paste(missing, collapse = ", "),
-        paste(data_var_names, collapse = ", ")
-      ))
-    }
-    data_var_names <- vars
-  }
-
-  # --- Phase 2: build coordinates ---
+  # --- Phase 2: build coordinates (always read) ---
   coords <- list()
   for (nm in coord_names) {
     arr <- ds$openArrayFromFullname(paste0("/", nm), character())
@@ -134,14 +138,33 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
     }
   }
 
-  # --- Phase 3: read data variables (eager) ---
-  data_vars <- list()
-  for (nm in data_var_names) {
-    arr <- ds$openArrayFromFullname(paste0("/", nm), character())
-    x <- gdalraster_fn("mdim_array_read")(arr)
-    gis <- attr(x, "gis")
+  # --- Phase 3: determine scope ---
+  # vars = NULL       → all data vars (lazy)
+  # vars = "sst"      → only sst (lazy)
+  # vars = character() → none (schema + coords only)
+  if (!is.null(vars) && length(vars) > 0L) {
+    missing <- setdiff(vars, data_var_names)
+    if (length(missing) > 0L) {
+      stop(sprintf(
+        "requested variable(s) not found: %s\navailable: %s",
+        paste(missing, collapse = ", "),
+        paste(data_var_names, collapse = ", ")
+      ))
+    }
+    data_var_names <- vars
+  } else if (!is.null(vars) && length(vars) == 0L) {
+    data_var_names <- character()
+  }
 
-    # Build attrs from array attributes
+  # --- Phase 4: build schemas for lazy variables ---
+  schemas <- list()
+  for (nm in data_var_names) {
+    info <- var_infos[[nm]]
+    dim_sizes <- as.integer(rev(info$shape))
+    dim_names <- rev(info$dim_names)
+
+    # Read attrs (cheap, just metadata)
+    arr <- ds$openArrayFromFullname(paste0("/", nm), character())
     arr_attrs <- list()
     attr_names <- gdalraster_fn("mdim_array_attr_names")(arr)
     for (a in attr_names) {
@@ -150,25 +173,93 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
         error = function(e) NULL
       )
     }
-    # Add unit from info if not already in attrs
-    if (is.null(arr_attrs[["units"]]) && !is.null(gis$unit) && nzchar(gis$unit)) {
-      arr_attrs[["units"]] <- gis$unit
+    if (is.null(arr_attrs[["units"]]) && !is.null(info$unit) && nzchar(info$unit)) {
+      arr_attrs[["units"]] <- info$unit
     }
 
-    data_vars[[nm]] <- Variable(
-      dims = gis$dim_names,
-      data = array(x, dim = gis$dim),
-      attrs = arr_attrs
+    schemas[[nm]] <- list(
+      dim_names = dim_names,
+      dim_sizes = dim_sizes,
+      attrs     = arr_attrs
     )
   }
 
-  # --- Phase 4: global attributes ---
+  # --- Phase 5: global attributes ---
   global_attrs <- tryCatch({
     root <- ds$getRootGroup()
     gdalraster_fn("mdim_group_attrs")(root)
   }, error = function(e) list())
 
-  Dataset(data_vars = data_vars, coords = coords, attrs = global_attrs)
+  # --- Build backend (if there are lazy vars) ---
+  backend <- NULL
+  if (length(schemas) > 0L) {
+    backend <- list(
+      dsn     = dsn,
+      schemas = schemas,
+      cache   = new.env(parent = emptyenv())
+    )
+  }
+
+  Dataset(
+    data_vars = list(),
+    coords    = coords,
+    attrs     = global_attrs,
+    .backend  = backend
+  )
+}
+
+
+#' Read a single variable from GDAL multidim
+#' @keywords internal
+#' @noRd
+read_var_gdal <- function(ds_handle, var_name) {
+  arr <- ds_handle$openArrayFromFullname(paste0("/", var_name), character())
+  x <- gdalraster_fn("mdim_array_read")(arr)
+  gis <- attr(x, "gis")
+
+  # Build attrs
+  arr_attrs <- list()
+  attr_names <- gdalraster_fn("mdim_array_attr_names")(arr)
+  for (a in attr_names) {
+    arr_attrs[[a]] <- tryCatch(
+      gdalraster_fn("mdim_array_attr")(arr, a),
+      error = function(e) NULL
+    )
+  }
+  if (is.null(arr_attrs[["units"]]) && !is.null(gis$unit) && nzchar(gis$unit)) {
+    arr_attrs[["units"]] <- gis$unit
+  }
+
+  Variable(
+    dims  = gis$dim_names,
+    data  = array(x, dim = gis$dim),
+    attrs = arr_attrs
+  )
+}
+
+
+#' Read a lazy variable from backend on demand
+#' @keywords internal
+#' @noRd
+backend_read_var <- function(be, var_name) {
+  # Check cache first
+  if (exists(var_name, envir = be$cache, inherits = FALSE)) {
+    return(get(var_name, envir = be$cache, inherits = FALSE))
+  }
+
+  # Open connection, read, close
+  ds_handle <- new(
+    gdalraster_class("GDALMultiDimRaster"),
+    be$dsn, TRUE, character(), FALSE
+  )
+  on.exit(ds_handle$close(), add = TRUE)
+
+  v <- read_var_gdal(ds_handle, var_name)
+
+  # Cache for next access
+  assign(var_name, v, envir = be$cache)
+
+  v
 }
 
 

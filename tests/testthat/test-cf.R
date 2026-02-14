@@ -58,6 +58,42 @@ test_that("cf_decode_time handles OISST-style units", {
   expect_equal(dates[1], as.Date("1981-12-01"))
 })
 
+test_that("cf_decode_time treats NULL calendar as standard", {
+  dates <- cf_decode_time(c(0, 1), "days since 2020-01-01", calendar = NULL)
+  expect_s3_class(dates, "Date")
+  expect_equal(dates[1], as.Date("2020-01-01"))
+})
+
+test_that("cf_decode_time treats explicit standard calendars correctly", {
+  for (cal in c("standard", "gregorian", "proleptic_gregorian")) {
+    dates <- cf_decode_time(c(0, 1), "days since 2020-01-01", calendar = cal)
+    expect_s3_class(dates, "Date")
+    expect_equal(dates[1], as.Date("2020-01-01"))
+  }
+})
+
+test_that("cf_decode_time warns for non-standard calendar without CFtime", {
+  skip_if(requireNamespace("CFtime", quietly = TRUE),
+          "CFtime is installed, skip warning test")
+  expect_warning(
+    result <- cf_decode_time(c(0, 360), "days since 2020-01-01", calendar = "360_day"),
+    "non-standard calendar"
+  )
+  expect_true(is.numeric(result))
+})
+
+test_that("cf_decode_time handles non-standard calendar with CFtime", {
+  skip_if_not_installed("CFtime")
+
+  # noleap: 365 days = exactly 1 year
+  dates <- cf_decode_time(c(0, 365), "days since 2020-01-01", calendar = "noleap")
+  expect_equal(length(dates), 2L)
+
+  # 360_day: 360 days = 1 year, produces non-Gregorian dates
+  result <- cf_decode_time(c(0, 360), "days since 2020-01-01", calendar = "360_day")
+  expect_equal(length(result), 2L)
+})
+
 
 # --- is_regular tests ---
 
