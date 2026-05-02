@@ -1,6 +1,6 @@
 Package: ndr
 Title: Named-Dimension Arrays with Coordinate-Based Indexing
-Version: 0.1.0.9000
+Version: 0.1.0.9001
 Authors@R: 
     person("Michael", "Sumner", , "mdsumner@gmail.com", role = c("aut", "cre"))
 Description: Provides Variable, DataArray, and Dataset classes for
@@ -41,3 +41,4 @@ Collate:
     'zzz.R'
 URL: https://github.com/mdsumner/ndr
 BugReports: https://github.com/mdsumner/ndr/issues
+Remotes: mdsumner/gdalraster@gdalmultidim-api

@@ -73,6 +73,29 @@
 }
 
 
+#' Variable names in a Dataset
+#'
+#' Returns all available variable names, including lazy (not-yet-loaded)
+#' variables from the backend.
+#'
+#' @param x A Dataset
+#' @return Character vector of variable names
+#' @export
+`names.ndr::Dataset` <- function(x) {
+  loaded <- names(x@data_vars)
+  be <- x@.backend
+  lazy <- if (!is.null(be)) names(be$schemas) else character()
+  unique(c(loaded, lazy))
+}
+
+
+#' @export
+`.DollarNames.ndr::Dataset` <- function(x, pattern = "") {
+  nms <- names(x)
+  grep(pattern, nms, value = TRUE)
+}
+
+
 #' Quick Variable constructor from a named-dim array
 #'
 #' @param data An R array

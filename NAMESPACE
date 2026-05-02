@@ -1,6 +1,7 @@
 # Generated manually — run roxygen2::roxygenise() to regenerate
 
 import(S7)
+importFrom(utils, .DollarNames)
 
 # Classes
 export(Variable)
@@ -40,6 +41,8 @@ S3method(as.array, "ndr::DataArray")
 S3method(as.data.frame, "ndr::DataArray")
 S3method(as.data.frame, "ndr::LazyDataArray")
 S3method(as.list, "ndr::Dataset")
+S3method(names, "ndr::Dataset")
+S3method(.DollarNames, "ndr::Dataset")
 S3method("$", "ndr::Dataset")
 S3method("[[", "ndr::Dataset")
 S3method(dim, "ndr::LazyDataArray")

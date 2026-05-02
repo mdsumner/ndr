@@ -112,6 +112,16 @@ method(coord_lookup, ImplicitCoord) <- function(x, value) {
   if (x@n == 0L) return(integer(0))
   # n=1: always index 1 (avoids division by zero when step=0)
   if (x@n == 1L) return(rep(1L, length(value)))
+  # Catch Date/POSIXt passed to a numeric coord (undecoded CF time)
+  if (inherits(value, "Date") || inherits(value, "POSIXt")) {
+    stop(
+      "Date/POSIXt value passed to a numeric time coordinate.\n",
+      "The time dimension was not decoded from CF units.\n",
+      "Pass a numeric value matching the raw coordinate, or check that ",
+      "the source has CF 'units' metadata (e.g. 'days since 1950-01-01').",
+      call. = FALSE
+    )
+  }
   # O(1): invert the affine transform
   continuous_idx <- (value - x@offset) / x@step
   idx <- round(continuous_idx) + 1L  # to 1-based
@@ -122,24 +132,27 @@ method(coord_lookup, ImplicitCoord) <- function(x, value) {
 
 method(coord_lookup, ExplicitCoord) <- function(x, value) {
   v <- x@values
-  if (is.numeric(v)) {
-    if (!is.unsorted(v)) {
+  if (is.numeric(v) || inherits(v, "Date") || inherits(v, "POSIXt")) {
+    # Convert to numeric for distance calculations
+    vn <- as.numeric(v)
+    valn <- as.numeric(value)
+    if (!is.unsorted(vn)) {
       # sorted ascending: binary search for nearest
-      vapply(value, function(val) {
-        pos <- findInterval(val, v)
+      vapply(valn, function(val) {
+        pos <- findInterval(val, vn)
         if (pos == 0L) return(1L)
-        if (pos == length(v)) return(length(v))
+        if (pos == length(vn)) return(length(vn))
         # pick the closer of pos and pos+1
-        if (abs(v[pos] - val) <= abs(v[pos + 1L] - val)) pos else pos + 1L
+        if (abs(vn[pos] - val) <= abs(vn[pos + 1L] - val)) pos else pos + 1L
       }, integer(1))
     } else {
       # unsorted (or descending): linear nearest-neighbor
-      vapply(value, function(val) {
-        which.min(abs(v - val))
+      vapply(valn, function(val) {
+        which.min(abs(vn - val))
       }, integer(1))
     }
   } else {
-    # non-numeric (character, Date, factor, etc.): exact match
+    # non-numeric (character, factor, etc.): exact match
     match(value, v)
   }
 }

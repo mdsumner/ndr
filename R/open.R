@@ -117,10 +117,50 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
     vals <- gdalraster_fn("mdim_dim_values")(arr, 0L)
     ci <- gdalraster_fn("mdim_coord_info")(arr, 0L)
 
-    # CF time decode
+    # CF time decode — check dimension metadata first, then array attrs,
+    # then mdim_array_info()$unit (GDAL Zarr driver puts it there)
+    time_units <- NULL
+    time_calendar <- NULL
+
     if (!is.null(ci$type) && ci$type == "TEMPORAL" && !is.null(ci$units)) {
+      # GDAL tagged this as temporal (NetCDF driver does this)
+      time_units <- ci$units
+      time_calendar <- ci$calendar
+    } else {
+      # Zarr/HDF5: check array attributes for CF units like "days since ..."
+      attr_names <- tryCatch(
+        gdalraster_fn("mdim_array_attr_names")(arr),
+        error = function(e) character()
+      )
+      if ("units" %in% attr_names) {
+        u <- tryCatch(
+          gdalraster_fn("mdim_array_attr")(arr, "units"),
+          error = function(e) NULL
+        )
+        if (is.character(u) && length(u) == 1L && grepl("since", u, fixed = TRUE)) {
+          time_units <- u
+        }
+      }
+      # Also check mdim_array_info()$unit — GDAL Zarr driver exposes CF
+      # units here rather than as an attribute
+      if (is.null(time_units)) {
+        info <- var_infos[[nm]]
+        if (!is.null(info$unit) && nzchar(info$unit) && grepl("since", info$unit, fixed = TRUE)) {
+          time_units <- info$unit
+        }
+      }
+      # Calendar from attrs (even if units came from info$unit)
+      if (!is.null(time_units) && "calendar" %in% attr_names) {
+        time_calendar <- tryCatch(
+          gdalraster_fn("mdim_array_attr")(arr, "calendar"),
+          error = function(e) NULL
+        )
+      }
+    }
+
+    if (!is.null(time_units)) {
       vals <- tryCatch(
-        cf_decode_time(vals, ci$units, ci$calendar),
+        cf_decode_time(vals, time_units, time_calendar),
         error = function(e) vals  # fall back to raw numeric
       )
     }
