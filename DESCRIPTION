@@ -12,7 +12,6 @@ Description: Provides Variable, DataArray, and Dataset classes for
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Depends:
     R (>= 4.1.0)
 Imports:
@@ -43,4 +42,4 @@ Collate:
 URL: https://github.com/mdsumner/ndr
 BugReports: https://github.com/mdsumner/ndr/issues
 Remotes: rgdal-dev/GDAL7, hypertidy/altarr
-
+Config/roxygen2/version: 8.1.0
