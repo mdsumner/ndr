@@ -9,12 +9,16 @@ reference:
   - DataArray
   - Dataset
   - as_variable
-- title: Coordinates
+- title: Coordinates and indexes
   contents:
+  - indexes
   - coordinates
   - ImplicitCoord
   - ExplicitCoord
   - starts_with("coord_")
+  - AffineIndex
+  - as_geotransform
+  - set_affine_index
 - title: Selection
   contents:
   - indexing
@@ -29,6 +33,7 @@ reference:
 - title: Reading data
   contents:
   - open_dataset
+  - open_raster
   - cf_decode_time
   - lazy-data
   - collect
