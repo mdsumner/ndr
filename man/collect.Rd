@@ -2,16 +2,23 @@
 % Please edit documentation in R/lazy.R
 \name{collect}
 \alias{collect}
-\title{Materialise a lazy object by reading data from disk}
+\title{Read lazy data into memory}
 \usage{
 collect(x, ...)
 }
 \arguments{
-\item{x}{A LazyDataArray (or DataArray, which is returned as-is).}
+\item{x}{A Variable, DataArray or Dataset.}
+
+\item{...}{Unused.}
 }
 \value{
-A DataArray with data in memory.
+An object of the same class with data in memory.
 }
 \description{
-Materialise a lazy object by reading data from disk
+Replaces lazy (altarr) data with an ordinary in-memory array, reading it
+with one planned read. Objects whose data is already in memory are
+returned unchanged.
+}
+\seealso{
+\link{lazy-data}
 }

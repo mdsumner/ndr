@@ -40,15 +40,16 @@ test_that("lazy $access triggers read and caches", {
 
   ds <- open_dataset(oisst_dsn)
 
-  # Access returns LazyDataArray (no data read yet)
+  # Access returns a DataArray with lazy data (no data read yet)
   da <- ds$sst
-  expect_true(S7_inherits(da, LazyDataArray))
+  expect_true(S7_inherits(da, DataArray))
+  expect_true(ndr:::is_lazy(da@variable@data))
   expect_equal(da@name, "sst")
-  expect_equal(da@dims, c("lon", "lat", "time"))
+  expect_equal(da@variable@dims, c("lon", "lat", "time"))
 
   # collect() materialises data
   da_mat <- collect(da)
-  expect_true(S7_inherits(da_mat, DataArray))
+  expect_false(ndr:::is_lazy(da_mat@variable@data))
   expect_true(length(da_mat@variable@data) > 0L)
 })
 
@@ -75,9 +76,9 @@ test_that("open_dataset with vars scopes to those vars", {
   expect_length(ds@data_vars, 0L)
   expect_equal(names(ds@.backend$schemas), "sst")
 
-  # Access returns LazyDataArray
+  # Access returns a DataArray with lazy data
   da <- ds$sst
-  expect_true(S7_inherits(da, LazyDataArray))
+  expect_true(ndr:::is_lazy(da@variable@data))
 
   # collect() materialises
   da_mat <- collect(da)
@@ -155,11 +156,11 @@ test_that("lazy open_dataset integrates with ndr operations", {
   da <- ds$sst
   da_t1 <- isel(da, time = 1L)
   # Still lazy after isel
-  expect_true(S7_inherits(da_t1, LazyDataArray))
+  expect_true(ndr:::is_lazy(da_t1@variable@data))
   expect_equal(ndim(da_t1), 2L)
 
   da_region <- sel(da, lat = c(-10, 10), lon = c(150, 200))
-  expect_true(S7_inherits(da_region, LazyDataArray))
+  expect_true(ndr:::is_lazy(da_region@variable@data))
   expect_true(all(dim(da_region) > 0L))
 
   # collect() works

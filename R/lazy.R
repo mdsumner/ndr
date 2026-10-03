@@ -1,245 +1,254 @@
-#' @title LazyDataArray
+#' Lazy data in a Variable
 #'
-#' @description
-#' A lazy representation of a DataArray that carries a selection spec rather
-#' than data. Created when accessing variables from a Dataset opened via
-#' `open_dataset()`. Data is only read from disk when `collect()` is called.
+#' A Variable's `data` can be a lazy chunked array from the altarr package:
+#' an ordinary double, integer or logical vector with a `dim` attribute that
+#' reads its values chunk by chunk only when they are asked for. Variables
+#' read by [open_dataset()] hold such arrays, and any altarr array can be
+#' used directly:
 #'
-#' The selection spec accumulates as `sel()`/`isel()` calls are chained,
-#' recording which dimensions have been narrowed and to what index ranges.
-#' `collect()` translates the accumulated spec into a single GDAL
-#' `mdim_array_read()` hyperslab call.
+#' ```
+#' v <- Variable(dims = c("lon", "lat", "time"), data = altarr::altarr(...))
+#' ```
 #'
-#' @name LazyDataArray
+#' Every Variable, DataArray and Dataset method accepts lazy data:
+#'
+#' * `dim()`, `shape()`, printing and coordinate work read nothing.
+#' * `isel()` and `sel()` read nothing: they return a Variable whose data is
+#'   a lazy view of the selection, still backed by the same chunks.
+#' * Reductions ([nd_mean()] and friends) stream the array in blocks aligned
+#'   to its chunks, one planned read per block, and never hold more than one
+#'   block plus the result in memory.
+#' * Arithmetic, `as.array()`, `as.data.frame()` and `collect()` read the
+#'   (selected) values into memory with one planned read.
+#'
+#' The block size for reductions is `getOption("ndr.block_values")` values
+#' (default `2^22`); the chunk cache and fetch batching are altarr's options
+#' (see `?altarr::altarr_contract`).
+#'
+#' @name lazy-data
 NULL
 
 
-# --- LazyDataArray class definition ---
+# --- collect() ---
 
-#' @export
-LazyDataArray <- S7::new_class("LazyDataArray",
-  properties = list(
-    #' @field name Character. Variable name.
-    name = S7::new_property(S7::class_character, default = character()),
-
-    #' @field dims Character vector. Dimension names in R (column-major) order.
-    dims = S7::class_character,
-
-    #' @field dim_sizes Integer vector. Full (unsliced) dimension sizes in R order.
-    dim_sizes = S7::class_integer,
-
-    #' @field coords Named list of Coordinate objects (same as DataArray).
-    coords = S7::new_property(S7::class_list, default = list()),
-
-    #' @field attrs Named list of attributes.
-    attrs = S7::new_property(S7::class_list, default = list()),
-
-    #' @field .selection Named list of selection specs per dimension.
-    #'   NULL = full dimension (no selection applied).
-    #'   Integer vector = selected 1-based R indices for that dimension.
-    .selection = S7::new_property(S7::class_list, default = list()),
-
-    #' @field .backend List with `dsn` and `var_name` for GDAL reads.
-    .backend = S7::class_any
-  ),
-  validator = function(self) {
-    if (length(self@dims) != length(self@dim_sizes)) {
-      "dims and dim_sizes must have the same length"
-    }
-  }
-)
-
-
-# --- Schema-based accessors (no data read needed) ---
-
-S7::method(ndim, LazyDataArray) <- function(x) {
-  # Number of dims after accounting for scalar selections (which drop dims)
-  sum(vapply(x@dims, function(dn) {
-    sel <- x@.selection[[dn]]
-    is.null(sel) || length(sel) > 1L
-  }, logical(1L)))
-}
-
-S7::method(shape, LazyDataArray) <- function(x) {
-  out <- integer()
-  nms <- character()
-  for (i in seq_along(x@dims)) {
-    dn <- x@dims[i]
-    sel <- x@.selection[[dn]]
-    if (is.null(sel)) {
-      out <- c(out, x@dim_sizes[i])
-      nms <- c(nms, dn)
-    } else if (length(sel) > 1L) {
-      out <- c(out, length(sel))
-      nms <- c(nms, dn)
-    }
-    # scalar selection: dimension dropped, not included
-  }
-  stats::setNames(out, nms)
-}
-
-#' @export
-`dim.ndr::LazyDataArray` <- function(x) {
-  s <- shape(x)
-  if (length(s) == 0L) return(NULL)
-  unname(s)
-}
-
-#' @export
-`length.ndr::LazyDataArray` <- function(x) {
-  prod(shape(x))
-}
-
-#' @export
-`as.array.ndr::LazyDataArray` <- function(x, ...) {
-  as.array(collect(x), ...)
-}
-
-
-# --- collect() generic and methods ---
-
-#' Materialise a lazy object by reading data from disk
+#' Read lazy data into memory
 #'
-#' @param x A LazyDataArray (or DataArray, which is returned as-is).
-#' @return A DataArray with data in memory.
+#' Replaces lazy (altarr) data with an ordinary in-memory array, reading it
+#' with one planned read. Objects whose data is already in memory are
+#' returned unchanged.
+#'
+#' @param x A Variable, DataArray or Dataset.
+#' @param ... Unused.
+#' @return An object of the same class with data in memory.
+#' @seealso [lazy-data]
 #' @export
 collect <- S7::new_generic("collect", "x")
 
+S7::method(collect, Variable) <- function(x) {
+  if (!is_lazy(x@data)) return(x)
+  Variable(dims = x@dims, data = var_values(x), attrs = x@attrs,
+           encoding = x@encoding)
+}
 
-#' @export
-S7::method(collect, LazyDataArray) <- function(x) {
-  be <- x@.backend
-  spec <- x@.selection
+S7::method(collect, DataArray) <- function(x) {
+  if (!is_lazy(x@variable@data)) return(x)
+  DataArray(variable = collect(x@variable), coords = x@coords, name = x@name)
+}
 
-  # Open GDAL handle
-  ds_handle <- new(
-    gdalraster_class("GDALMultiDimRaster"),
-    be$dsn, TRUE, character(), FALSE
-  )
-  on.exit(ds_handle$close(), add = TRUE)
-
-  arr <- ds_handle$openArrayFromFullname(paste0("/", be$var_name), character())
-
-  # Translate selection spec to start/count in GDAL C-order
-  hyperslab <- selection_to_hyperslab(x@dims, x@dim_sizes, spec)
-
-  # Read hyperslab
-  data <- gdalraster_fn("mdim_array_read")(
-    arr,
-    start = hyperslab$start,
-    count = hyperslab$count
-  )
-
-  # gis$dim and gis$dim_names are in R order
-  gis <- attr(data, "gis")
-
-  # Build sliced coordinate list
-  sliced_coords <- slice_coords(x@coords, x@dims, spec)
-
-  # Determine output dims (drop dimensions with size 1 from scalar selection)
-  out_dims <- character()
-  out_dim_sizes <- integer()
-  for (i in seq_along(x@dims)) {
-    dn <- x@dims[i]
-    sel <- spec[[dn]]
-    if (is.null(sel)) {
-      out_dims <- c(out_dims, dn)
-      out_dim_sizes <- c(out_dim_sizes, x@dim_sizes[i])
-    } else if (length(sel) > 1L) {
-      out_dims <- c(out_dims, dn)
-      out_dim_sizes <- c(out_dim_sizes, length(sel))
-    }
-    # length(sel) == 1 → dimension is dropped (scalar selection)
-  }
-
-  # Reshape data into R array with correct dims
-  arr_data <- array(as.vector(data), dim = if (length(out_dim_sizes) > 0L) out_dim_sizes else NULL)
-
-  # Build Variable
-  var <- Variable(
-    dims  = out_dims,
-    data  = arr_data,
-    attrs = x@attrs
-  )
-
-  # Build DataArray
-  DataArray(
-    name   = x@name,
-    variable = var,
-    coords = sliced_coords
-  )
+S7::method(collect, Dataset) <- function(x) {
+  Dataset(data_vars = lapply(x@data_vars, collect), coords = x@coords,
+          attrs = x@attrs, .backend = x@.backend)
 }
 
 
-#' @export
-S7::method(collect, DataArray) <- function(x) x
+# --- helpers for lazy (altarr) data ---
 
-
-# --- Hyperslab translation ---
-
-#' Translate R-order selection spec to GDAL C-order start/count
+#' Is this lazy altarr data?
 #'
-#' @param dims Character vector of dimension names in R (F) order.
-#' @param dim_sizes Integer vector of full dimension sizes in R order.
-#' @param selection Named list: dim_name → integer indices (1-based) or NULL.
-#' @return List with `start` (0-based, C-order) and `count` (C-order).
+#' An altarr array can only exist once altarr's namespace is loaded (its
+#' ALTREP classes are registered then), so the check never loads altarr.
 #' @keywords internal
 #' @noRd
-selection_to_hyperslab <- function(dims, dim_sizes, selection) {
-  n <- length(dims)
-  r_start <- integer(n)
-  r_count <- integer(n)
-
-  for (i in seq_len(n)) {
-    dn <- dims[i]
-    sel <- selection[[dn]]
-
-    if (is.null(sel)) {
-      # Full dimension
-      r_start[i] <- 0L   # 0-based for GDAL
-      r_count[i] <- dim_sizes[i]
-    } else {
-      # Contiguous selection: use min/max of indices
-      # (for non-contiguous, we read the bounding box and subset later)
-      idx <- as.integer(sel)
-      r_start[i] <- min(idx) - 1L   # convert 1-based → 0-based
-      r_count[i] <- max(idx) - min(idx) + 1L
-    }
-  }
-
-  # GDAL expects C-order (reversed from R F-order)
-  list(
-    start = rev(r_start),
-    count = rev(r_count)
-  )
+is_lazy <- function(x) {
+  isNamespaceLoaded("altarr") && altarr::is_altarr(x)
 }
 
-
-#' Slice coordinates to match selection
-#'
-#' @param coords Named list of Coordinate objects.
-#' @param dims Character vector of dimension names in R order.
-#' @param selection Named list: dim_name → integer indices or NULL.
-#' @return Named list of Coordinate objects, sliced and filtered.
+#' Rectangular read of lazy data: one planned fetch
+#' @param x altarr array
+#' @param subs list of 1-based integer subscripts, one per dimension
 #' @keywords internal
 #' @noRd
-slice_coords <- function(coords, dims, selection) {
-  out <- list()
-  for (nm in names(coords)) {
-    coord <- coords[[nm]]
-    dn <- coord_dim(coord)
+lazy_extract <- function(x, subs) {
+  do.call(altarr::altarr_extract, c(list(x), unname(subs), list(drop = FALSE)))
+}
 
-    sel <- selection[[dn]]
+#' Chunk shape of lazy data (clipped to the array's extent)
+#' @keywords internal
+#' @noRd
+lazy_chunk <- function(x) {
+  nd <- length(dim(x))
+  p <- do.call(altarr::altarr_plan, c(list(x), as.list(rep(1L, nd))))
+  as.integer(unlist(p[1L, paste0(names(p)[seq_len(nd)], "_n")]))
+}
 
-    if (is.null(sel)) {
-      # No selection on this dim: keep as-is
-      out[[nm]] <- coord
-    } else if (length(sel) == 1L) {
-      # Scalar selection: drop this coord (dimension will be dropped)
-    } else {
-      # Subset coordinate using coord_slice
-      out[[nm]] <- coord_slice(coord, sel)
-    }
-  }
+#' A Variable's values as an in-memory array
+#'
+#' Lazy data is read with one planned read, so this is the place where
+#' arithmetic, coercion and collect() pay for their values.
+#' @keywords internal
+#' @noRd
+var_values <- function(x) {
+  d <- var_data(x)
+  if (!is_lazy(d)) return(d)
+  lazy_extract(d, lapply(dim(d), seq_len))
+}
+
+#' Normalise one subscript to 1-based integers, by base R's own rules
+#' @keywords internal
+#' @noRd
+norm_index <- function(i, n) {
+  if (isTRUE(i)) return(seq_len(n))
+  if (is.numeric(i) && any(i > n, na.rm = TRUE)) stop("subscript out of bounds")
+  out <- seq_len(n)[i]
+  if (anyNA(out)) stop("NA subscripts are not supported for lazy data")
   out
+}
+
+#' A lazy view of a selection from lazy data
+#'
+#' Returns a new altarr array of the selected positions. Its chunk shape is
+#' the source's, and its fetch reads each batch of requested chunks with one
+#' planned read of the source, so the view keeps the source's chunk-aware
+#' behaviour: selecting reads nothing, and later reads touch only the source
+#' chunks that hold selected values.
+#'
+#' @param src altarr array.
+#' @param idx list of 1-based integer subscripts, one per source dimension.
+#' @param keep logical, which source dimensions the view keeps (dropped
+#'   dimensions must have a single index).
+#' @keywords internal
+#' @noRd
+lazy_view <- function(src, idx, keep) {
+  vdim <- lengths(idx)[keep]
+  chunk <- pmin(lazy_chunk(src)[keep], vdim)
+  altarr::altarr(vdim, chunk, view_fetch(src, idx, keep, vdim, chunk),
+                 type = typeof(src))
+}
+
+#' Fetch function for lazy_view(), built in a factory so the recipe carries
+#' only the source array and the selection
+#' @keywords internal
+#' @noRd
+view_fetch <- function(src, idx, keep, vdim, chunk) {
+  force(src); force(idx); force(keep); force(vdim); force(chunk)
+  function(chunks) {
+    n <- nrow(chunks)
+    ranges <- lapply(seq_len(n), function(r) {
+      start <- chunks[r, ] * chunk + 1L
+      end <- pmin(start + chunk - 1L, vdim)
+      Map(seq.int, start, end)
+    })
+    ## one read of the union of the batch's positions, unless the batch is
+    ## so scattered that the union's cartesian product would be much larger
+    ## than the chunks themselves (then one read per chunk)
+    u <- lapply(seq_along(vdim), function(k) {
+      sort(unique(unlist(lapply(ranges, `[[`, k))))
+    })
+    need <- sum(vapply(ranges, function(rg) prod(as.numeric(lengths(rg))), 1))
+    if (prod(as.numeric(lengths(u))) <= 4 * need) {
+      block <- lazy_extract(src, view_subs(idx, keep, u))
+      dim(block) <- lengths(u)
+      lapply(ranges, function(rg) {
+        pos <- Map(match, rg, u)
+        as.vector(do.call(`[`, c(list(block), pos, list(drop = FALSE))))
+      })
+    } else {
+      lapply(ranges, function(rg) as.vector(lazy_extract(src, view_subs(idx, keep, rg))))
+    }
+  }
+}
+
+#' Map view positions (kept dims only) to source subscripts (all dims)
+#' @keywords internal
+#' @noRd
+view_subs <- function(idx, keep, pos) {
+  subs <- idx
+  subs[keep] <- Map(`[`, idx[keep], pos)
+  subs
+}
+
+
+# --- GDAL multidim arrays as lazy data ---
+
+#' A lazy array for one GDAL multidim variable
+#'
+#' Chunks follow the array's block size (GDAL's `GetBlockSize()`); where the
+#' driver reports none, blocks of about `getOption("ndr.chunk_values")`
+#' values (default `2^20`) are split along the slowest dimensions. The fetch
+#' function opens the source, reads each requested chunk with
+#' `mdim_array_read()` and closes it, so a saved Variable carries only the
+#' dsn and variable name.
+#'
+#' @param dsn Data source name.
+#' @param var_name Array name (opened as `"/var_name"`).
+#' @return An altarr array in R (column-major) dimension order.
+#' @keywords internal
+#' @noRd
+gdal_lazy_array <- function(dsn, var_name) {
+  ds <- new(gdalraster_class("GDALMultiDimRaster"), dsn, TRUE, character(), FALSE)
+  on.exit(ds$close(), add = TRUE)
+  arr <- ds$openArrayFromFullname(paste0("/", var_name), character())
+  info <- gdalraster_fn("mdim_array_info")(arr)
+  dim <- as.integer(rev(info$shape))
+
+  block <- tryCatch(as.integer(rev(arr$getBlockSize())),
+                    error = function(e) integer())
+  chunk <- if (length(block) == length(dim) && all(block > 0L)) {
+    pmin(block, dim)
+  } else {
+    default_chunk(dim, getOption("ndr.chunk_values", 2^20))
+  }
+
+  ## the type mdim_array_read() returns (after CF decoding), from one value
+  probe <- gdalraster_fn("mdim_array_read")(
+    arr, start = rep(0, length(dim)), count = rep(1, length(dim))
+  )
+  type <- typeof(probe)
+  if (!type %in% c("double", "integer", "logical")) type <- "double"
+
+  altarr::altarr(dim, chunk, gdal_fetch(dsn, var_name, dim, chunk), type = type)
+}
+
+#' @keywords internal
+#' @noRd
+gdal_fetch <- function(dsn, var_name, dim, chunk) {
+  force(dsn); force(var_name); force(dim); force(chunk)
+  function(chunks) {
+    ds <- new(gdalraster_class("GDALMultiDimRaster"), dsn, TRUE, character(), FALSE)
+    on.exit(ds$close(), add = TRUE)
+    arr <- ds$openArrayFromFullname(paste0("/", var_name), character())
+    read <- gdalraster_fn("mdim_array_read")
+    lapply(seq_len(nrow(chunks)), function(r) {
+      start <- chunks[r, ] * chunk
+      count <- pmin(chunk, dim - start)
+      ## GDAL dimension order is the reverse of R's; the values come back
+      ## column-major in R order
+      v <- read(arr, start = rev(start), count = rev(count))
+      attributes(v) <- NULL
+      v
+    })
+  }
+}
+
+#' Chunk shape of about `target` values, splitting the slowest dims first
+#' @keywords internal
+#' @noRd
+default_chunk <- function(dim, target) {
+  chunk <- as.integer(dim)
+  for (k in rev(seq_along(chunk))) {
+    while (prod(as.numeric(chunk)) > target && chunk[k] > 1L) {
+      chunk[k] <- as.integer(ceiling(chunk[k] / 2))
+    }
+  }
+  chunk
 }

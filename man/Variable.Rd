@@ -9,7 +9,8 @@ Variable(dims = character(0), data = NULL, attrs = list(), encoding = list())
 \arguments{
 \item{dims}{Character vector of dimension names.}
 
-\item{data}{An R array (or matrix, or vector with dim attribute).}
+\item{data}{An R array (or matrix, or vector with dim attribute), or a
+lazy chunked array from the altarr package (see \link{lazy-data}).}
 
 \item{attrs}{Named list of arbitrary metadata.}
 

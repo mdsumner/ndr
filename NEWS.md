@@ -13,6 +13,27 @@
   `as.data.frame()` on a LazyDataArray trigger `collect()` transparently.
 * `collect()` on a DataArray is the identity — safe to call on anything.
 
+## Lazy data via altarr
+
+* A Variable's `data` can be a lazy chunked array from the altarr package
+  (`hypertidy/altarr`, in Suggests): a plain array with a `dim` attribute
+  that reads its chunks only when asked. See `?lazy-data`.
+* `ds$var_name` on a Dataset from `open_dataset()` now returns an ordinary
+  DataArray whose data is such an array, chunked like the file (GDAL's block
+  size). `LazyDataArray` is gone: lazy data is a property of the data, not a
+  separate class, so every method works on it.
+* `isel()` and `sel()` on lazy data read nothing: they return a lazy view of
+  the selection that reads only the source chunks it needs, with one planned
+  read per batch of chunks (no element-by-element `[` reads).
+* `nd_mean()`, `nd_sum()`, `nd_min()` and `nd_max()` on lazy data stream
+  chunk-aligned blocks (one planned read each) instead of materialising the
+  array with `apply()`; block size is `getOption("ndr.block_values")`.
+* `collect()` now reads lazy data into memory for Variable, DataArray and
+  Dataset, and is the identity for in-memory data. Arithmetic, `as.array()`
+  and `as.data.frame()` read lazy data as before.
+* Lazy Variables and their selections save with `saveRDS()` as recipes (the
+  dsn, variable name and selection), not values.
+
 ## File backends
 
 * `open_dataset()` — read multidimensional data sources into ndr Datasets.
@@ -23,7 +44,11 @@
   Data variables load on first `collect()`. Use `vars` to scope which
   variables are available.
 
-## CF time decoding
+  Data variables are lazy arrays (see above); values are read when used.
+  This allows opening 12TB+ datasets without reading any array data.
+  Use `vars` to limit which variables are available.
+
+## CF Time decoding 
 
 * `cf_decode_time()` — decode CF convention time values ("days since ...",
   "hours since ...") to R Date or POSIXct objects.

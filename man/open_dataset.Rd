@@ -18,7 +18,7 @@ All variables are loaded lazily on first access via \code{$}.}
 }
 \value{
 A \link{Dataset} with coordinates, global attributes, and lazy data
-variables that load on first access.
+variables whose values are read only when used.
 }
 \description{
 Read a multidimensional data source into an ndr Dataset. Currently supports
@@ -31,10 +31,14 @@ Requires the gdalraster package (>= 1.12.0) with multidim API support
 (install from: \code{remotes::install_github("mdsumner/gdalraster@gdalmultidim-api")}).
 \subsection{Lazy loading}{
 
-\code{open_dataset()} reads only coordinates and metadata. Data variables are
-loaded on demand when accessed via \code{ds$var_name}, then cached for reuse.
-This allows opening large datasets (e.g. 12TB BRAN2023) without reading
-any array data. Use \code{vars} to limit which variables are available.
+\code{open_dataset()} reads only coordinates and metadata. Accessing a data
+variable via \code{ds$var_name} returns a \link{DataArray} whose data is a lazy
+chunked array (see \link{lazy-data}): still no array data is read. \code{sel()} and
+\code{isel()} stay lazy, reductions stream the array chunk by chunk, and
+arithmetic or \code{\link[=collect]{collect()}} read the selected values. This allows opening
+large datasets (e.g. 12TB BRAN2023) without reading any array data. Use
+\code{vars} to limit which variables are available. Lazy reads need the altarr
+package (\code{remotes::install_github("hypertidy/altarr")}).
 }
 
 \subsection{Variable classification}{
@@ -73,8 +77,11 @@ variable with dimensions (time, lat, lon), the R array has
 ds <- open_dataset("sst.mnmean.nc")
 ds  # shows variables with [not loaded]
 
-# Access triggers read
-ds$sst |> sel(time = as.Date("2020-06-15"), lat = c(-60, -30))
+# Selecting is lazy too; collect() reads just the selected values
+ds$sst |> sel(time = as.Date("2020-06-15"), lat = c(-60, -30)) |> collect()
+
+# Reductions stream the array chunk by chunk
+ds$sst |> sel(lat = c(-60, -30)) |> nd_mean("time", na.rm = TRUE)
 
 # Scope to specific variables (still lazy)
 ds <- open_dataset("sst.mnmean.nc", vars = "sst")
@@ -82,7 +89,7 @@ ds <- open_dataset("sst.mnmean.nc", vars = "sst")
 # Remote kerchunk-parquet — only sst schema, 12TB never touched
 dsn <- 'ZARR:"/vsicurl/https://example.com/store.parq"'
 ds <- open_dataset(dsn, vars = "temp")
-ds$temp  # reads only temp, on demand
+ds$temp  # a lazy DataArray: nothing read yet
 }
 
 }

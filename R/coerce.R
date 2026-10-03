@@ -48,15 +48,9 @@
 
   # add the data values
   val_name <- if (length(x@name) > 0L) x@name else "value"
-  grid[[val_name]] <- as.vector(x@variable@data)
+  grid[[val_name]] <- as.vector(var_values(x@variable))
 
   grid
-}
-
-
-#' @export
-`as.data.frame.ndr::LazyDataArray` <- function(x, row.names = NULL, optional = FALSE, ...) {
-  as.data.frame(collect(x), row.names = row.names, optional = optional, ...)
 }
 
 
