@@ -1,6 +1,6 @@
 #' Coordinate classes
 #'
-#' A Coordinate maps integer indices to meaningful values along a dimension.
+#' A Coordinate is a one-dimensional [Index][indexes]. It maps integer indices to meaningful values along a dimension.
 #' Two representations:
 #'
 #' - **ImplicitCoord**: regular grids defined by offset + step. Coordinates are
@@ -27,6 +27,7 @@ NULL
 #'
 #' @export
 ImplicitCoord <- new_class("ImplicitCoord",
+  parent = Index,
   properties = list(
     dimension = class_character,
     n      = class_integer,
@@ -57,6 +58,7 @@ ImplicitCoord <- new_class("ImplicitCoord",
 #'
 #' @export
 ExplicitCoord <- new_class("ExplicitCoord",
+  parent = Index,
   properties = list(
     dimension = class_character,
     values = class_any
@@ -201,3 +203,59 @@ coord_dim <- new_generic("coord_dim", "x", function(x) S7_dispatch())
 
 method(coord_dim, ImplicitCoord) <- function(x) x@dimension
 method(coord_dim, ExplicitCoord) <- function(x) x@dimension
+
+
+# --- Index contract for one-dimensional coordinates ---
+
+method(index_dims, ImplicitCoord) <- function(x) x@dimension
+method(index_dims, ExplicitCoord) <- function(x) x@dimension
+
+method(index_sizes, ImplicitCoord) <- function(x) {
+  stats::setNames(coord_length(x), x@dimension)
+}
+method(index_sizes, ExplicitCoord) <- function(x) {
+  stats::setNames(coord_length(x), x@dimension)
+}
+
+method(index_coords, ImplicitCoord) <- function(x) {
+  stats::setNames(list(coord_values(x)), x@dimension)
+}
+method(index_coords, ExplicitCoord) <- function(x) {
+  stats::setNames(list(coord_values(x)), x@dimension)
+}
+
+# a 2-element orderable value is a closed range, anything else is a
+# nearest lookup per value
+coord_sel_1d <- function(x, labels) {
+  val <- labels[[x@dimension]]
+  if (length(val) == 2L && is_orderable(val)) {
+    all_vals <- coord_values(x)
+    pos <- which(all_vals >= min(val) & all_vals <= max(val))
+  } else {
+    pos <- coord_lookup(x, val)
+  }
+  stats::setNames(list(pos), x@dimension)
+}
+method(index_sel, ImplicitCoord) <- coord_sel_1d
+method(index_sel, ExplicitCoord) <- coord_sel_1d
+
+coord_isel_1d <- function(x, positions) {
+  idx <- positions[[x@dimension]]
+  if (is.null(idx)) return(list(x))
+  if (length(idx) == 1L) return(list())  # dimension dropped
+  list(coord_slice(x, idx))
+}
+method(index_isel, ImplicitCoord) <- coord_isel_1d
+method(index_isel, ExplicitCoord) <- coord_isel_1d
+
+coord_drop_1d <- function(x, dims) {
+  if (x@dimension %in% dims) list() else list(x)
+}
+method(index_drop, ImplicitCoord) <- coord_drop_1d
+method(index_drop, ExplicitCoord) <- coord_drop_1d
+
+method(index_equals, list(ImplicitCoord, ImplicitCoord)) <- function(x, y) {
+  x@dimension == y@dimension && x@n == y@n &&
+    (x@n == 0L || isTRUE(all.equal(c(x@offset, x@step), c(y@offset, y@step),
+                                   tolerance = 1e-9)))
+}

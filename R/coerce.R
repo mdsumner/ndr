@@ -31,16 +31,15 @@
   # build coordinate vectors (or integer indices if no coord)
   coord_vals <- list()
   for (d in dims) {
-    # find coord for this dim
-    coord <- NULL
-    for (c in x@coords) {
-      if (coord_dim(c) == d) { coord <- c; break }
+    # coordinate values from the index that owns this dim, when they are
+    # one-dimensional (a rotated affine grid has 2D coords: use positions)
+    vals <- NULL
+    nm <- find_index(x@coords, d)
+    if (!is.null(nm)) {
+      vals <- index_coords(x@coords[[nm]])[[d]]
+      if (!is.null(dim(vals)) && length(dim(vals)) > 1L) vals <- NULL
     }
-    if (!is.null(coord)) {
-      coord_vals[[d]] <- coord_values(coord)
-    } else {
-      coord_vals[[d]] <- seq_len(s[d])
-    }
+    coord_vals[[d]] <- if (is.null(vals)) seq_len(s[d]) else vals
   }
 
   # expand grid (respects R's column-major array layout)

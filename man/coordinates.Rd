@@ -4,7 +4,7 @@
 \alias{coordinates}
 \title{Coordinate classes}
 \description{
-A Coordinate maps integer indices to meaningful values along a dimension.
+A Coordinate is a one-dimensional \link[=indexes]{Index}. It maps integer indices to meaningful values along a dimension.
 Two representations:
 }
 \details{
