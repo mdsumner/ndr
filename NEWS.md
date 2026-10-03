@@ -13,6 +13,18 @@
   `as.data.frame()` on a LazyDataArray trigger `collect()` transparently.
 * `collect()` on a DataArray is the identity — safe to call on anything.
 
+## GDAL7 backend
+
+* `open_dataset()` now reads through GDAL7 (`rgdal-dev/GDAL7`, GDAL >= 3.10)
+  instead of the multidim branch of gdalraster. Lazy variables are made by
+  GDAL7's `as_altarr()`, so each batch of chunks is one advised GDAL read
+  (decoded on GDAL's threads for Zarr).
+* CF `scale_factor`/`add_offset` are applied by ndr in a lazy view, since
+  GDAL7 applies only nodata. Until GDAL7's `read_mdarray()` gains a `type`,
+  integer arrays read as double.
+* `Remotes` is now `rgdal-dev/GDAL7, hypertidy/altarr` (a duplicated
+  `Remotes` field in DESCRIPTION is fixed).
+
 ## Lazy data via altarr
 
 * A Variable's `data` can be a lazy chunked array from the altarr package
@@ -89,7 +101,7 @@
 * `ds_dims()` and Dataset print include dimensions from lazy variable schemas.
 * `is_regular()` detects regularly-spaced coordinate values to choose between
   ImplicitCoord and ExplicitCoord when reading from files.
-* gdalraster added to Suggests.
+* gdalraster added to Suggests (replaced by GDAL7 since).
 
 
 # ndr 0.1.0

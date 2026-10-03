@@ -126,45 +126,55 @@ norm_index <- function(i, n) {
 #' @param idx list of 1-based integer subscripts, one per source dimension.
 #' @param keep logical, which source dimensions the view keeps (dropped
 #'   dimensions must have a single index).
+#' @param transform optional function applied to each chunk's values (used
+#'   for CF unpacking); the view is then double.
 #' @keywords internal
 #' @noRd
-lazy_view <- function(src, idx, keep) {
+lazy_view <- function(src, idx, keep, transform = NULL) {
   vdim <- lengths(idx)[keep]
   chunk <- pmin(lazy_chunk(src)[keep], vdim)
-  altarr::altarr(vdim, chunk, view_fetch(src, idx, keep, vdim, chunk),
-                 type = typeof(src))
+  type <- if (is.null(transform)) typeof(src) else "double"
+  altarr::altarr(vdim, chunk, view_fetch(src, idx, keep, vdim, chunk, transform),
+                 type = type)
 }
 
 #' Fetch function for lazy_view(), built in a factory so the recipe carries
 #' only the source array and the selection
 #' @keywords internal
 #' @noRd
-view_fetch <- function(src, idx, keep, vdim, chunk) {
-  force(src); force(idx); force(keep); force(vdim); force(chunk)
+view_fetch <- function(src, idx, keep, vdim, chunk, transform = NULL) {
+  force(src); force(idx); force(keep); force(vdim); force(chunk); force(transform)
   function(chunks) {
-    n <- nrow(chunks)
-    ranges <- lapply(seq_len(n), function(r) {
-      start <- chunks[r, ] * chunk + 1L
-      end <- pmin(start + chunk - 1L, vdim)
-      Map(seq.int, start, end)
+    out <- view_read(chunks, src, idx, keep, vdim, chunk)
+    if (is.null(transform)) out else lapply(out, transform)
+  }
+}
+
+#' @keywords internal
+#' @noRd
+view_read <- function(chunks, src, idx, keep, vdim, chunk) {
+  n <- nrow(chunks)
+  ranges <- lapply(seq_len(n), function(r) {
+    start <- chunks[r, ] * chunk + 1L
+    end <- pmin(start + chunk - 1L, vdim)
+    Map(seq.int, start, end)
+  })
+  ## one read of the union of the batch's positions, unless the batch is
+  ## so scattered that the union's cartesian product would be much larger
+  ## than the chunks themselves (then one read per chunk)
+  u <- lapply(seq_along(vdim), function(k) {
+    sort(unique(unlist(lapply(ranges, `[[`, k))))
+  })
+  need <- sum(vapply(ranges, function(rg) prod(as.numeric(lengths(rg))), 1))
+  if (prod(as.numeric(lengths(u))) <= 4 * need) {
+    block <- lazy_extract(src, view_subs(idx, keep, u))
+    dim(block) <- lengths(u)
+    lapply(ranges, function(rg) {
+      pos <- Map(match, rg, u)
+      as.vector(do.call(`[`, c(list(block), pos, list(drop = FALSE))))
     })
-    ## one read of the union of the batch's positions, unless the batch is
-    ## so scattered that the union's cartesian product would be much larger
-    ## than the chunks themselves (then one read per chunk)
-    u <- lapply(seq_along(vdim), function(k) {
-      sort(unique(unlist(lapply(ranges, `[[`, k))))
-    })
-    need <- sum(vapply(ranges, function(rg) prod(as.numeric(lengths(rg))), 1))
-    if (prod(as.numeric(lengths(u))) <= 4 * need) {
-      block <- lazy_extract(src, view_subs(idx, keep, u))
-      dim(block) <- lengths(u)
-      lapply(ranges, function(rg) {
-        pos <- Map(match, rg, u)
-        as.vector(do.call(`[`, c(list(block), pos, list(drop = FALSE))))
-      })
-    } else {
-      lapply(ranges, function(rg) as.vector(lazy_extract(src, view_subs(idx, keep, rg))))
-    }
+  } else {
+    lapply(ranges, function(rg) as.vector(lazy_extract(src, view_subs(idx, keep, rg))))
   }
 }
 
@@ -182,73 +192,41 @@ view_subs <- function(idx, keep, pos) {
 
 #' A lazy array for one GDAL multidim variable
 #'
-#' Chunks follow the array's block size (GDAL's `GetBlockSize()`); where the
-#' driver reports none, blocks of about `getOption("ndr.chunk_values")`
-#' values (default `2^20`) are split along the slowest dimensions. The fetch
-#' function opens the source, reads each requested chunk with
-#' `mdim_array_read()` and closes it, so a saved Variable carries only the
-#' dsn and variable name.
+#' Made by GDAL7's `as_altarr()`: chunks are the array's own storage chunks
+#' (`block_size`), each batch of chunks is one advised GDAL read, and nodata
+#' reads as `NA`. A saved Variable carries only the dsn and array name.
+#' GDAL7 does not apply CF `scale_factor`/`add_offset`, so a packed array is
+#' unpacked here, in a lazy view that keeps the same chunks.
 #'
 #' @param dsn Data source name.
-#' @param var_name Array name (opened as `"/var_name"`).
+#' @param var_name Array name, or a full path from the root group.
 #' @return An altarr array in R (column-major) dimension order.
 #' @keywords internal
 #' @noRd
 gdal_lazy_array <- function(dsn, var_name) {
-  ds <- new(gdalraster_class("GDALMultiDimRaster"), dsn, TRUE, character(), FALSE)
-  on.exit(ds$close(), add = TRUE)
-  arr <- ds$openArrayFromFullname(paste0("/", var_name), character())
-  info <- gdalraster_fn("mdim_array_info")(arr)
-  dim <- as.integer(rev(info$shape))
+  ds <- GDAL7::gdal_open(dsn, multidim = TRUE)
+  on.exit(GDAL7::gdal_close(ds), add = TRUE)
+  arr <- GDAL7::open_mdarray(GDAL7::get_root_group(ds), var_name)
+  scale <- arr@scale
+  offset <- arr@offset
 
-  block <- tryCatch(as.integer(rev(arr$getBlockSize())),
-                    error = function(e) integer())
-  chunk <- if (length(block) == length(dim) && all(block > 0L)) {
-    pmin(block, dim)
-  } else {
-    default_chunk(dim, getOption("ndr.chunk_values", 2^20))
+  x <- GDAL7::as_altarr(dsn, array = var_name)
+  # Variable@dims carries the names; keep the data a plain array
+  dimnames(x) <- NULL
+
+  scale <- if (length(scale) == 1L && !is.na(scale)) scale else 1
+  offset <- if (length(offset) == 1L && !is.na(offset)) offset else 0
+  if (scale != 1 || offset != 0) {
+    x <- lazy_view(x, lapply(dim(x), seq_len), rep(TRUE, length(dim(x))),
+                   transform = unpack_fun(scale, offset))
   }
-
-  ## the type mdim_array_read() returns (after CF decoding), from one value
-  probe <- gdalraster_fn("mdim_array_read")(
-    arr, start = rep(0, length(dim)), count = rep(1, length(dim))
-  )
-  type <- typeof(probe)
-  if (!type %in% c("double", "integer", "logical")) type <- "double"
-
-  altarr::altarr(dim, chunk, gdal_fetch(dsn, var_name, dim, chunk), type = type)
+  x
 }
 
+#' CF unpacking as a chunk transform, built in a factory for small recipes
 #' @keywords internal
 #' @noRd
-gdal_fetch <- function(dsn, var_name, dim, chunk) {
-  force(dsn); force(var_name); force(dim); force(chunk)
-  function(chunks) {
-    ds <- new(gdalraster_class("GDALMultiDimRaster"), dsn, TRUE, character(), FALSE)
-    on.exit(ds$close(), add = TRUE)
-    arr <- ds$openArrayFromFullname(paste0("/", var_name), character())
-    read <- gdalraster_fn("mdim_array_read")
-    lapply(seq_len(nrow(chunks)), function(r) {
-      start <- chunks[r, ] * chunk
-      count <- pmin(chunk, dim - start)
-      ## GDAL dimension order is the reverse of R's; the values come back
-      ## column-major in R order
-      v <- read(arr, start = rev(start), count = rev(count))
-      attributes(v) <- NULL
-      v
-    })
-  }
-}
-
-#' Chunk shape of about `target` values, splitting the slowest dims first
-#' @keywords internal
-#' @noRd
-default_chunk <- function(dim, target) {
-  chunk <- as.integer(dim)
-  for (k in rev(seq_along(chunk))) {
-    while (prod(as.numeric(chunk)) > target && chunk[k] > 1L) {
-      chunk[k] <- as.integer(ceiling(chunk[k] / 2))
-    }
-  }
-  chunk
+unpack_fun <- function(scale, offset) {
+  force(scale); force(offset)
+  function(v) v * scale + offset
 }

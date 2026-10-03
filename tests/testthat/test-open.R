@@ -1,17 +1,12 @@
 ## Tests for open_dataset()
 ##
-## These require gdalraster with multidim API support.
-## Run locally with: remotes::install_github("mdsumner/gdalraster@gdalmultidim-api")
+## These require GDAL7 (remotes::install_github("rgdal-dev/GDAL7")).
 ##
 ## Test data sources:
 ##   - OISST: local NetCDF at /rdsi/PUBLIC/raad/data/...
 ##   - BRAN2023: remote kerchunk-parquet via /vsicurl/
 
-skip_if_not_installed("gdalraster")
-skip_if_not(
-  exists("mdim_array_read", envir = asNamespace("gdalraster")),
-  "gdalraster multidim API not available"
-)
+skip_if_not_installed("GDAL7")
 
 oisst_dsn <- "/rdsi/PUBLIC/raad/data/ftp.cdc.noaa.gov/Datasets/noaa.oisst.v2/sst.mnmean.nc"
 

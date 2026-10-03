@@ -5,8 +5,9 @@
 #' kerchunk-parquet virtual stores, and VRT multidim. Works with local paths,
 #' `/vsicurl/`, `/vsis3/`, and other GDAL virtual filesystems.
 #'
-#' Requires the gdalraster package (>= 1.12.0) with multidim API support
-#' (install from: `remotes::install_github("mdsumner/gdalraster@gdalmultidim-api")`).
+#' Requires the GDAL7 package (`remotes::install_github("rgdal-dev/GDAL7")`,
+#' GDAL >= 3.10) and, for reading data, the altarr package
+#' (`remotes::install_github("hypertidy/altarr")`).
 #'
 #' @param dsn Data source name. A file path, URL, or GDAL connection string
 #'   (e.g. `'ZARR:"/vsicurl/https://example.com/store.parq"'`).
@@ -52,7 +53,7 @@
 #'
 #' ## Dimension ordering
 #'
-#' Arrays are stored in R's column-major (Fortran) order, matching gdalraster's
+#' Arrays are stored in R's column-major (Fortran) order, matching GDAL7's `read_mdarray()`
 #' `$gis$dim` convention. Dimension names follow the same order. For a NetCDF
 #' variable with dimensions (time, lat, lon), the R array has
 #' `dim = c(nlon, nlat, ntime)` and `dims = c("lon", "lat", "time")`.
@@ -80,7 +81,7 @@
 #'
 #' @export
 open_dataset <- function(dsn, vars = NULL, ...) {
-  check_gdalraster()
+  check_gdal7()
   open_dataset_gdal(dsn, vars = vars, ...)
 }
 
@@ -89,27 +90,29 @@ open_dataset <- function(dsn, vars = NULL, ...) {
 #' @noRd
 open_dataset_gdal <- function(dsn, vars = NULL, ...) {
 
-  ds <- new(
-    gdalraster_class("GDALMultiDimRaster"),
-    dsn, TRUE, character(), FALSE
-  )
-  on.exit(ds$close(), add = TRUE)
+  ds <- GDAL7::gdal_open(dsn, multidim = TRUE)
+  on.exit(GDAL7::gdal_close(ds), add = TRUE)
+  root <- GDAL7::get_root_group(ds)
+  if (is.null(root)) {
+    stop(sprintf("'%s' is not a multidimensional source", dsn), call. = FALSE)
+  }
 
-  array_names <- ds$getArrayNames()
+  array_names <- root@mdarray_names
 
   # --- Phase 1: classify arrays as coords or data vars ---
   coord_names <- character()
   data_var_names <- character()
-  var_infos <- list()  # cache array info for all vars
+  arrays <- list()  # open arrays, reused below
 
   for (nm in array_names) {
-    arr <- ds$openArrayFromFullname(paste0("/", nm), character())
-    info <- gdalraster_fn("mdim_array_info")(arr)
-    var_infos[[nm]] <- info
+    arr <- GDAL7::open_mdarray(root, nm)
+    if (is.null(arr)) next
+    arrays[[nm]] <- arr
+    dim_names <- arr@dimensions$name
 
-    ndims <- length(info$dim_names)
+    ndims <- length(dim_names)
     if (ndims == 0L) next  # skip scalar arrays
-    if (ndims == 1L && info$dim_names == nm) {
+    if (ndims == 1L && dim_names == nm) {
       coord_names <- c(coord_names, nm)
     } else if (ndims > 1L) {
       data_var_names <- c(data_var_names, nm)
@@ -120,54 +123,23 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
   # --- Phase 2: build coordinates (always read) ---
   coords <- list()
   for (nm in coord_names) {
-    arr <- ds$openArrayFromFullname(paste0("/", nm), character())
-    vals <- gdalraster_fn("mdim_dim_values")(arr, 0L)
-    ci <- gdalraster_fn("mdim_coord_info")(arr, 0L)
+    arr <- arrays[[nm]]
+    vals <- GDAL7::read_mdarray(arr)
+    arr_attrs <- arr@attributes
 
-    # CF time decode — check dimension metadata first, then array attrs,
-    # then mdim_array_info()$unit (GDAL Zarr driver puts it there)
+    # CF time decode: GDAL gives CF units as the array's unit (netCDF tags
+    # the dimension TEMPORAL; Zarr does not), else look in the attributes
     time_units <- NULL
-    time_calendar <- NULL
-
-    if (!is.null(ci$type) && ci$type == "TEMPORAL" && !is.null(ci$units)) {
-      # GDAL tagged this as temporal (NetCDF driver does this)
-      time_units <- ci$units
-      time_calendar <- ci$calendar
-    } else {
-      # Zarr/HDF5: check array attributes for CF units like "days since ..."
-      attr_names <- tryCatch(
-        gdalraster_fn("mdim_array_attr_names")(arr),
-        error = function(e) character()
-      )
-      if ("units" %in% attr_names) {
-        u <- tryCatch(
-          gdalraster_fn("mdim_array_attr")(arr, "units"),
-          error = function(e) NULL
-        )
-        if (is.character(u) && length(u) == 1L && grepl("since", u, fixed = TRUE)) {
-          time_units <- u
-        }
-      }
-      # Also check mdim_array_info()$unit — GDAL Zarr driver exposes CF
-      # units here rather than as an attribute
-      if (is.null(time_units)) {
-        info <- var_infos[[nm]]
-        if (!is.null(info$unit) && nzchar(info$unit) && grepl("since", info$unit, fixed = TRUE)) {
-          time_units <- info$unit
-        }
-      }
-      # Calendar from attrs (even if units came from info$unit)
-      if (!is.null(time_units) && "calendar" %in% attr_names) {
-        time_calendar <- tryCatch(
-          gdalraster_fn("mdim_array_attr")(arr, "calendar"),
-          error = function(e) NULL
-        )
+    for (u in list(arr@unit_type, arr_attrs[["units"]])) {
+      if (is.character(u) && length(u) == 1L && grepl("since", u, fixed = TRUE)) {
+        time_units <- u
+        break
       }
     }
 
     if (!is.null(time_units)) {
       vals <- tryCatch(
-        cf_decode_time(vals, time_units, time_calendar),
+        cf_decode_time(vals, time_units, arr_attrs[["calendar"]]),
         error = function(e) vals  # fall back to raw numeric
       )
     }
@@ -206,36 +178,25 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
   # --- Phase 4: build schemas for lazy variables ---
   schemas <- list()
   for (nm in data_var_names) {
-    info <- var_infos[[nm]]
-    dim_sizes <- as.integer(rev(info$shape))
-    dim_names <- rev(info$dim_names)
+    arr <- arrays[[nm]]
+    dims <- arr@dimensions
 
-    # Read attrs (cheap, just metadata)
-    arr <- ds$openArrayFromFullname(paste0("/", nm), character())
-    arr_attrs <- list()
-    attr_names <- gdalraster_fn("mdim_array_attr_names")(arr)
-    for (a in attr_names) {
-      arr_attrs[[a]] <- tryCatch(
-        gdalraster_fn("mdim_array_attr")(arr, a),
-        error = function(e) NULL
-      )
-    }
-    if (is.null(arr_attrs[["units"]]) && !is.null(info$unit) && nzchar(info$unit)) {
-      arr_attrs[["units"]] <- info$unit
+    # attributes come back all at once (cheap, just metadata)
+    arr_attrs <- arr@attributes
+    unit <- arr@unit_type
+    if (is.null(arr_attrs[["units"]]) && length(unit) == 1L && nzchar(unit)) {
+      arr_attrs[["units"]] <- unit
     }
 
     schemas[[nm]] <- list(
-      dim_names = dim_names,
-      dim_sizes = dim_sizes,
+      dim_names = rev(dims$name),
+      dim_sizes = as.integer(rev(dims$size)),
       attrs     = arr_attrs
     )
   }
 
   # --- Phase 5: global attributes ---
-  global_attrs <- tryCatch({
-    root <- ds$getRootGroup()
-    gdalraster_fn("mdim_group_attrs")(root)
-  }, error = function(e) list())
+  global_attrs <- tryCatch(root@attributes, error = function(e) list())
 
   # --- Build backend (if there are lazy vars) ---
   backend <- NULL
@@ -278,23 +239,15 @@ backend_lazy_var <- function(be, var_name) {
 }
 
 
-# --- gdalraster availability helpers ---
+# --- GDAL7 availability helpers ---
 
 #' @keywords internal
 #' @noRd
-check_gdalraster <- function() {
-  if (!requireNamespace("gdalraster", quietly = TRUE)) {
+check_gdal7 <- function() {
+  if (!requireNamespace("GDAL7", quietly = TRUE)) {
     stop(
-      "gdalraster package is required for open_dataset().\n",
-      "Install with: remotes::install_github(\"mdsumner/gdalraster@gdalmultidim-api\")",
-      call. = FALSE
-    )
-  }
-  # Check for multidim API
-  if (!exists("mdim_array_read", envir = asNamespace("gdalraster"))) {
-    stop(
-      "gdalraster is installed but lacks multidim API support.\n",
-      "Install the multidim branch: remotes::install_github(\"mdsumner/gdalraster@gdalmultidim-api\")",
+      "GDAL7 package is required for open_dataset().\n",
+      "Install with: remotes::install_github(\"rgdal-dev/GDAL7\")",
       call. = FALSE
     )
   }
@@ -310,18 +263,4 @@ check_altarr <- function() {
       call. = FALSE
     )
   }
-}
-
-#' Get a gdalraster Rcpp class
-#' @keywords internal
-#' @noRd
-gdalraster_class <- function(name) {
-  get(name, envir = asNamespace("gdalraster"))
-}
-
-#' Get a gdalraster function by name
-#' @keywords internal
-#' @noRd
-gdalraster_fn <- function(name) {
-  get(name, envir = asNamespace("gdalraster"))
 }

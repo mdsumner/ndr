@@ -242,13 +242,6 @@ test_that("a lazy selection saves as a recipe and reads after reload", {
   expect_identical(as.array(s2), ref3[, 2:4, ])
 })
 
-test_that("default_chunk splits the slowest dims first", {
-  expect_equal(ndr:::default_chunk(c(360L, 180L, 494L), 2^20),
-               c(360L, 180L, 16L))
-  expect_equal(ndr:::default_chunk(c(10L, 10L), 1e6), c(10L, 10L))
-})
-
-
 # --- GDAL backend (needs a local file) ---
 
 oisst_dsn <- "/rdsi/PUBLIC/raad/data/ftp.cdc.noaa.gov/Datasets/noaa.oisst.v2/sst.mnmean.nc"
@@ -295,13 +288,12 @@ test_that("reduction on GDAL-backed data streams", {
 # fixtures/chunked.nc is built from fixtures/chunked.cdl with
 # `ncgen -k nc4 -o chunked.nc chunked.cdl`: temp(time, lat, lon) holds
 # t*1000 + y*10 + x (0-based) with two missing values, chunked 2 x 3 x 4;
-# cnt is a short array chunked 4 x 5 x 3.
+# cnt is a short array chunked 4 x 5 x 3; packed is a short array holding
+# t*100 + y*10 + x with scale_factor 0.5, add_offset 10 and one missing value.
 
 skip_gdal_mdim <- function() {
   skip_if_not_installed("altarr")
-  skip_if_not_installed("gdalraster")
-  skip_if_not(exists("mdim_array_read", envir = asNamespace("gdalraster")),
-              "gdalraster multidim API not available")
+  skip_if_not_installed("GDAL7")
 }
 
 chunked_nc <- function() test_path("fixtures", "chunked.nc")
@@ -326,7 +318,7 @@ test_that("GDAL-backed variables are lazy and chunked like the file", {
   expect_equal(collect(temp)@variable@data, chunked_ref())
 })
 
-test_that("GDAL-backed sel, reductions and integer types", {
+test_that("GDAL-backed sel, reductions and integer sources", {
   skip_gdal_mdim()
   ds <- open_dataset(chunked_nc())
   ref <- chunked_ref()
@@ -336,13 +328,24 @@ test_that("GDAL-backed sel, reductions and integer types", {
   m <- nd_mean(s, "time", na.rm = TRUE)
   expect_equal(m@variable@data, apply(ref[, 2:5, 2:4], 1:2, mean, na.rm = TRUE))
 
+  # GDAL7's as_altarr() reads every type as double for now
   cnt <- ds$cnt
-  expect_equal(typeof(cnt@variable@data), "integer")
   expect_equal(ndr:::lazy_chunk(cnt@variable@data), c(3L, 5L, 4L))
   iref <- outer(outer(0:6, 10 * (0:4), `+`), 1000 * (0:5), `+`)
-  expect_identical(collect(cnt)@variable@data, array(as.integer(iref), dim(iref)))
-  expect_identical(as.vector(nd_max(cnt, c("lon", "lat"))@variable@data),
-                   as.integer(1000 * (0:5) + 46))
+  expect_equal(collect(cnt)@variable@data, iref)
+  expect_equal(as.vector(nd_max(cnt, c("lon", "lat"))@variable@data),
+               1000 * (0:5) + 46)
+})
+
+test_that("GDAL-backed packed arrays are unpacked lazily", {
+  skip_gdal_mdim()
+  ds <- open_dataset(chunked_nc())
+  p <- ds$packed
+  expect_true(ndr:::is_lazy(p@variable@data))
+  raw <- outer(outer(0:6, 10 * (0:4), `+`), 100 * (0:5), `+`)
+  raw[2, 2, 3] <- NA
+  expect_equal(collect(p)@variable@data, raw * 0.5 + 10)
+  expect_equal(collect(isel(p, time = 3L))@variable@data, raw[, , 3] * 0.5 + 10)
 })
 
 test_that("a GDAL-backed selection saves as a recipe", {

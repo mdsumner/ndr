@@ -27,8 +27,9 @@ kerchunk-parquet virtual stores, and VRT multidim. Works with local paths,
 \verb{/vsicurl/}, \verb{/vsis3/}, and other GDAL virtual filesystems.
 }
 \details{
-Requires the gdalraster package (>= 1.12.0) with multidim API support
-(install from: \code{remotes::install_github("mdsumner/gdalraster@gdalmultidim-api")}).
+Requires the GDAL7 package (\code{remotes::install_github("rgdal-dev/GDAL7")},
+GDAL >= 3.10) and, for reading data, the altarr package
+(\code{remotes::install_github("hypertidy/altarr")}).
 \subsection{Lazy loading}{
 
 \code{open_dataset()} reads only coordinates and metadata. Accessing a data
@@ -65,7 +66,7 @@ using \code{\link[=cf_decode_time]{cf_decode_time()}}.
 
 \subsection{Dimension ordering}{
 
-Arrays are stored in R's column-major (Fortran) order, matching gdalraster's
+Arrays are stored in R's column-major (Fortran) order, matching GDAL7's \code{read_mdarray()}
 \verb{$gis$dim} convention. Dimension names follow the same order. For a NetCDF
 variable with dimensions (time, lat, lon), the R array has
 \code{dim = c(nlon, nlat, ntime)} and \code{dims = c("lon", "lat", "time")}.

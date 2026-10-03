@@ -20,10 +20,8 @@ Imports:
 Suggests:
     altarr,
     CFtime,
-    gdalraster (>= 1.12.0),
+    GDAL7,
     testthat (>= 3.0.0)
-Remotes:
-    hypertidy/altarr
 Config/testthat/edition: 3
 Collate: 
     'ndr-package.R'
@@ -44,5 +42,5 @@ Collate:
     'zzz.R'
 URL: https://github.com/mdsumner/ndr
 BugReports: https://github.com/mdsumner/ndr/issues
-Remotes: mdsumner/gdalraster@gdalmultidim-api, hypertidy/altarr
+Remotes: rgdal-dev/GDAL7, hypertidy/altarr
 
