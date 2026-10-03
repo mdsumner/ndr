@@ -63,7 +63,7 @@ broadcast_shape <- function(a, b) {
 align_data <- function(v, target_dims) {
   sv <- shape(v)
   dv <- names(sv)
-  arr <- var_data(v)
+  arr <- var_values(v)
 
   if (length(dv) == 0L) {
     # scalar — return as-is if target is also scalar, else expand
@@ -143,7 +143,7 @@ broadcast_op <- function(a, b, op) {
 
   # scalar × scalar: no alignment/broadcasting needed
   if (length(out_dims) == 0L) {
-    return(Variable(dims = character(), data = array(op(var_data(a), var_data(b)))))
+    return(Variable(dims = character(), data = array(op(var_values(a), var_values(b)))))
   }
 
   a_aligned <- align_data(a, out_dims)

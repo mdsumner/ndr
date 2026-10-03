@@ -5,7 +5,8 @@
 #' that's DataArray's job.
 #'
 #' @param dims Character vector of dimension names.
-#' @param data An R array (or matrix, or vector with dim attribute).
+#' @param data An R array (or matrix, or vector with dim attribute), or a
+#'   lazy chunked array from the altarr package (see [lazy-data]).
 #' @param attrs Named list of arbitrary metadata.
 #' @param encoding Named list of on-disk encoding info (scale_factor, etc.).
 #'
@@ -93,5 +94,5 @@ method(shape, Variable) <- function(x) {
 # Ensure Variable is an array when needed
 #' @export
 `as.array.ndr::Variable` <- function(x, ...) {
-  var_data(x)
+  var_values(x)
 }

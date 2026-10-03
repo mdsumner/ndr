@@ -18,9 +18,12 @@ Depends:
 Imports:
     S7 (>= 0.2.0)
 Suggests:
+    altarr,
     CFtime,
     gdalraster (>= 1.12.0),
     testthat (>= 3.0.0)
+Remotes:
+    hypertidy/altarr
 Config/testthat/edition: 3
 Collate: 
     'ndr-package.R'

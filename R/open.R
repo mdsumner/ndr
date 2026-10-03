@@ -16,16 +16,20 @@
 #' @param ... Reserved for future use.
 #'
 #' @return A [Dataset] with coordinates, global attributes, and lazy data
-#'   variables that load on first access.
+#'   variables whose values are read only when used.
 #'
 #' @details
 #'
 #' ## Lazy loading
 #'
-#' `open_dataset()` reads only coordinates and metadata. Data variables are
-#' loaded on demand when accessed via `ds$var_name`, then cached for reuse.
-#' This allows opening large datasets (e.g. 12TB BRAN2023) without reading
-#' any array data. Use `vars` to limit which variables are available.
+#' `open_dataset()` reads only coordinates and metadata. Accessing a data
+#' variable via `ds$var_name` returns a [DataArray] whose data is a lazy
+#' chunked array (see [lazy-data]): still no array data is read. `sel()` and
+#' `isel()` stay lazy, reductions stream the array chunk by chunk, and
+#' arithmetic or [collect()] read the selected values. This allows opening
+#' large datasets (e.g. 12TB BRAN2023) without reading any array data. Use
+#' `vars` to limit which variables are available. Lazy reads need the altarr
+#' package (`remotes::install_github("hypertidy/altarr")`).
 #'
 #' ## Variable classification
 #'
@@ -59,8 +63,11 @@
 #' ds <- open_dataset("sst.mnmean.nc")
 #' ds  # shows variables with [not loaded]
 #'
-#' # Access triggers read
-#' ds$sst |> sel(time = as.Date("2020-06-15"), lat = c(-60, -30))
+#' # Selecting is lazy too; collect() reads just the selected values
+#' ds$sst |> sel(time = as.Date("2020-06-15"), lat = c(-60, -30)) |> collect()
+#'
+#' # Reductions stream the array chunk by chunk
+#' ds$sst |> sel(lat = c(-60, -30)) |> nd_mean("time", na.rm = TRUE)
 #'
 #' # Scope to specific variables (still lazy)
 #' ds <- open_dataset("sst.mnmean.nc", vars = "sst")
@@ -68,7 +75,7 @@
 #' # Remote kerchunk-parquet — only sst schema, 12TB never touched
 #' dsn <- 'ZARR:"/vsicurl/https://example.com/store.parq"'
 #' ds <- open_dataset(dsn, vars = "temp")
-#' ds$temp  # reads only temp, on demand
+#' ds$temp  # a lazy DataArray: nothing read yet
 #' }
 #'
 #' @export
@@ -249,56 +256,24 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
 }
 
 
-#' Read a single variable from GDAL multidim
+#' A lazy Variable for a backend variable, built once and cached
+#'
+#' Only the array's metadata is read here; values are read by the altarr
+#' array's fetch function when they are asked for.
 #' @keywords internal
 #' @noRd
-read_var_gdal <- function(ds_handle, var_name) {
-  arr <- ds_handle$openArrayFromFullname(paste0("/", var_name), character())
-  x <- gdalraster_fn("mdim_array_read")(arr)
-  gis <- attr(x, "gis")
-
-  # Build attrs
-  arr_attrs <- list()
-  attr_names <- gdalraster_fn("mdim_array_attr_names")(arr)
-  for (a in attr_names) {
-    arr_attrs[[a]] <- tryCatch(
-      gdalraster_fn("mdim_array_attr")(arr, a),
-      error = function(e) NULL
-    )
-  }
-  if (is.null(arr_attrs[["units"]]) && !is.null(gis$unit) && nzchar(gis$unit)) {
-    arr_attrs[["units"]] <- gis$unit
-  }
-
-  Variable(
-    dims  = gis$dim_names,
-    data  = array(x, dim = gis$dim),
-    attrs = arr_attrs
-  )
-}
-
-
-#' Read a lazy variable from backend on demand
-#' @keywords internal
-#' @noRd
-backend_read_var <- function(be, var_name) {
-  # Check cache first
+backend_lazy_var <- function(be, var_name) {
   if (exists(var_name, envir = be$cache, inherits = FALSE)) {
     return(get(var_name, envir = be$cache, inherits = FALSE))
   }
-
-  # Open connection, read, close
-  ds_handle <- new(
-    gdalraster_class("GDALMultiDimRaster"),
-    be$dsn, TRUE, character(), FALSE
+  check_altarr()
+  schema <- be$schemas[[var_name]]
+  v <- Variable(
+    dims  = schema$dim_names,
+    data  = gdal_lazy_array(be$dsn, var_name),
+    attrs = schema$attrs
   )
-  on.exit(ds_handle$close(), add = TRUE)
-
-  v <- read_var_gdal(ds_handle, var_name)
-
-  # Cache for next access
   assign(var_name, v, envir = be$cache)
-
   v
 }
 
@@ -320,6 +295,18 @@ check_gdalraster <- function() {
     stop(
       "gdalraster is installed but lacks multidim API support.\n",
       "Install the multidim branch: remotes::install_github(\"mdsumner/gdalraster@gdalmultidim-api\")",
+      call. = FALSE
+    )
+  }
+}
+
+#' @keywords internal
+#' @noRd
+check_altarr <- function() {
+  if (!requireNamespace("altarr", quietly = TRUE)) {
+    stop(
+      "altarr package is required for lazy reads from open_dataset().\n",
+      "Install with: remotes::install_github(\"hypertidy/altarr\")",
       call. = FALSE
     )
   }

@@ -126,24 +126,12 @@ extract_dataarray <- function(ds, var_name) {
     return(DataArray(variable = v, coords = relevant_coords, name = var_name))
   }
 
-  # 2. Check lazy backend → return LazyDataArray (no data read)
+  # 2. Check lazy backend -> DataArray holding lazy (altarr) data, no read
   be <- ds@.backend
   if (!is.null(be) && var_name %in% names(be$schemas)) {
-    schema <- be$schemas[[var_name]]
-    vdims <- schema$dim_names
-    relevant_coords <- Filter(function(c) coord_dim(c) %in% vdims, ds@coords)
-    return(LazyDataArray(
-      name      = var_name,
-      dims      = vdims,
-      dim_sizes = as.integer(schema$dim_sizes),
-      coords    = relevant_coords,
-      attrs     = schema$attrs,
-      .selection = stats::setNames(
-        replicate(length(vdims), NULL, simplify = FALSE),
-        vdims
-      ),
-      .backend  = list(dsn = be$dsn, var_name = var_name)
-    ))
+    v <- backend_lazy_var(be, var_name)
+    relevant_coords <- Filter(function(c) coord_dim(c) %in% v@dims, ds@coords)
+    return(DataArray(variable = v, coords = relevant_coords, name = var_name))
   }
 
   # 3. Not found

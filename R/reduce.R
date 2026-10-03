@@ -46,7 +46,9 @@ nd_max <- new_generic("nd_max", "x")
 
 # --- Variable methods ---
 
-reduce_variable <- function(x, dims, fn, ...) {
+reduce_variable <- function(x, dims, fn, na.rm = FALSE) {
+  fn_name <- fn
+  fn <- match.fun(fn)
   s <- shape(x)
   all_dims <- names(s)
 
@@ -63,14 +65,23 @@ reduce_variable <- function(x, dims, fn, ...) {
   new_dims <- all_dims[keep_axes]
   arr <- var_data(x)
 
+  # lazy data: stream chunk-aligned blocks instead of materialising
+  if (is_lazy(arr)) {
+    val <- reduce_lazy(arr, keep_axes, fn_name, na.rm = na.rm)
+    if (length(keep_axes) == 0L) {
+      return(Variable(dims = character(), data = array(val), attrs = x@attrs))
+    }
+    return(Variable(dims = new_dims, data = val, attrs = x@attrs))
+  }
+
   if (length(keep_axes) == 0L) {
-    # reducing all dims → scalar
-    val <- fn(arr, ...)
+    # reducing all dims -> scalar
+    val <- fn(arr, na.rm = na.rm)
     return(Variable(dims = character(), data = array(val), attrs = x@attrs))
   }
 
   # apply over kept margins
-  result <- apply(arr, keep_axes, fn, ...)
+  result <- apply(arr, keep_axes, fn, na.rm = na.rm)
 
   # apply can return a vector when MARGIN is length 1 — ensure dim is set
   expected_shape <- unname(s[new_dims])
@@ -88,19 +99,19 @@ reduce_variable <- function(x, dims, fn, ...) {
 
 
 method(nd_mean, Variable) <- function(x, dims, na.rm = FALSE) {
-  reduce_variable(x, dims, mean, na.rm = na.rm)
+  reduce_variable(x, dims, "mean", na.rm = na.rm)
 }
 
 method(nd_sum, Variable) <- function(x, dims, na.rm = FALSE) {
-  reduce_variable(x, dims, sum, na.rm = na.rm)
+  reduce_variable(x, dims, "sum", na.rm = na.rm)
 }
 
 method(nd_min, Variable) <- function(x, dims, na.rm = FALSE) {
-  reduce_variable(x, dims, min, na.rm = na.rm)
+  reduce_variable(x, dims, "min", na.rm = na.rm)
 }
 
 method(nd_max, Variable) <- function(x, dims, na.rm = FALSE) {
-  reduce_variable(x, dims, max, na.rm = na.rm)
+  reduce_variable(x, dims, "max", na.rm = na.rm)
 }
 
 
@@ -135,20 +146,117 @@ method(nd_max, DataArray) <- function(x, dims, na.rm = FALSE) {
 }
 
 
-# --- LazyDataArray methods: auto-collect then reduce ---
+# --- Streaming reductions for lazy data ---
 
-method(nd_mean, LazyDataArray) <- function(x, dims, na.rm = FALSE) {
-  nd_mean(collect(x), dims, na.rm = na.rm)
+#' Reduce lazy (altarr) data over all but `keep_axes`, block by block
+#'
+#' The array is visited in blocks aligned to its chunk grid, grown from one
+#' chunk towards `getOption("ndr.block_values")` values (reduced dimensions
+#' first). Each block is one planned read; per-cell partial results (sum,
+#' count, min, max) are combined across blocks, so memory holds one block
+#' plus the result. Results follow base R's `sum()`, `mean()`, `min()` and
+#' `max()` up to floating-point summation order.
+#'
+#' @param arr altarr array.
+#' @param keep_axes integer, the dimensions to keep (ascending).
+#' @param fn one of "mean", "sum", "min", "max".
+#' @return An array of `dim(arr)[keep_axes]`, or a length-1 value.
+#' @keywords internal
+#' @noRd
+reduce_lazy <- function(arr, keep_axes, fn, na.rm = FALSE) {
+  d <- dim(arr)
+  nd <- length(d)
+  red_axes <- setdiff(seq_len(nd), keep_axes)
+  block <- reduce_block_shape(d, lazy_chunk(arr), red_axes,
+                              getOption("ndr.block_values", 2^22))
+
+  kd <- d[keep_axes]
+  ncell <- if (length(kd)) prod(kd) else 1
+  cell <- if (length(kd)) array(seq_len(ncell), kd) else NULL
+  acc <- if (fn %in% c("sum", "mean")) numeric(ncell)
+         else rep(if (fn == "min") Inf else -Inf, ncell)
+  cnt <- numeric(ncell)
+
+  starts <- lapply(seq_len(nd), function(k) seq.int(1L, d[k], by = block[k]))
+  grid <- expand.grid(lapply(starts, seq_along), KEEP.OUT.ATTRS = FALSE)
+  for (b in seq_len(nrow(grid))) {
+    subs <- lapply(seq_len(nd), function(k) {
+      s0 <- starts[[k]][grid[[k]][b]]
+      seq.int(s0, min(s0 + block[k] - 1L, d[k]))
+    })
+    v <- lazy_extract(arr, subs)
+    if (length(keep_axes)) {
+      v <- aperm(v, c(keep_axes, red_axes))
+      lin <- as.vector(do.call(`[`, c(list(cell), subs[keep_axes])))
+    } else {
+      lin <- 1L
+    }
+    m <- matrix(v, nrow = length(lin))
+    cnt[lin] <- cnt[lin] + if (na.rm) rowSums(!is.na(m)) else ncol(m)
+    if (fn %in% c("sum", "mean")) {
+      acc[lin] <- acc[lin] + rowSums(m, na.rm = na.rm)
+    } else {
+      acc[lin] <- row_extreme(m, acc[lin], fn, na.rm)
+    }
+  }
+
+  out <- if (fn == "mean") acc / cnt else acc
+  if (fn %in% c("min", "max") && any(cnt == 0)) {
+    warning(sprintf("no non-missing arguments to %s; returning %s",
+                    fn, if (fn == "min") "Inf" else "-Inf"), call. = FALSE)
+  }
+  if (is.integer(arr) && fn != "mean") out <- as_integer_result(out, fn)
+  if (length(kd)) array(out, kd) else out
 }
 
-method(nd_sum, LazyDataArray) <- function(x, dims, na.rm = FALSE) {
-  nd_sum(collect(x), dims, na.rm = na.rm)
+#' Running row-wise min or max of a block, combined with the previous values
+#' @keywords internal
+#' @noRd
+row_extreme <- function(m, prev, fn, na.rm) {
+  pfn <- if (fn == "min") pmin else pmax
+  if (ncol(m) <= nrow(m)) {
+    out <- prev
+    for (j in seq_len(ncol(m))) out <- pfn(out, m[, j], na.rm = na.rm)
+    out
+  } else {
+    f <- match.fun(fn)
+    vals <- apply(m, 1L, function(r) {
+      if (na.rm && all(is.na(r))) return(if (fn == "min") Inf else -Inf)
+      f(r, na.rm = na.rm)
+    })
+    pfn(prev, vals, na.rm = na.rm)
+  }
 }
 
-method(nd_min, LazyDataArray) <- function(x, dims, na.rm = FALSE) {
-  nd_min(collect(x), dims, na.rm = na.rm)
+#' Integer input keeps integer sum/min/max results, as base R does
+#' @keywords internal
+#' @noRd
+as_integer_result <- function(out, fn) {
+  if (fn == "sum") {
+    big <- !is.na(out) & abs(out) > .Machine$integer.max
+    if (any(big)) {
+      warning("integer overflow - use sum(as.numeric(.))", call. = FALSE)
+      out[big] <- NA
+    }
+    return(as.integer(out))
+  }
+  # min/max of nothing is +/-Inf, which stays double (as in base R)
+  if (any(is.infinite(out))) return(out)
+  as.integer(out)
 }
 
-method(nd_max, LazyDataArray) <- function(x, dims, na.rm = FALSE) {
-  nd_max(collect(x), dims, na.rm = na.rm)
+#' Block shape for streaming: a whole number of chunks along each dim,
+#' grown towards `target` values, reduced dims first
+#' @keywords internal
+#' @noRd
+reduce_block_shape <- function(d, chunk, red_axes, target) {
+  block <- pmin(chunk, d)
+  for (k in c(red_axes, setdiff(seq_along(d), red_axes))) {
+    while (block[k] < d[k] &&
+           prod(as.numeric(block)) / block[k] *
+             min(d[k], block[k] + chunk[k]) <= target) {
+      block[k] <- min(d[k], block[k] + chunk[k])
+    }
+  }
+  block
 }

@@ -1,232 +1,355 @@
-## Tests for LazyDataArray and the lazy sel → collect() pipeline
+## Tests for lazy (altarr) data in Variables
 
-oisst_dsn <- "/rdsi/PUBLIC/raad/data/ftp.cdc.noaa.gov/Datasets/noaa.oisst.v2/sst.mnmean.nc"
+# a lazy copy of an in-memory array, fetched chunk by chunk
+lazy_copy <- function(ref, chunk) {
+  d <- dim(ref)
+  chunk <- rep_len(as.integer(chunk), length(d))
+  force(ref)
+  altarr::altarr(d, chunk, function(chunks) {
+    lapply(seq_len(nrow(chunks)), function(r) {
+      s <- chunks[r, ] * chunk + 1L
+      e <- pmin(s + chunk - 1L, d)
+      as.vector(do.call(`[`, c(list(ref), Map(seq.int, s, e), list(drop = FALSE))))
+    })
+  }, type = typeof(ref))
+}
 
-# --- LazyDataArray construction ---
+stat <- function(x, nm) unname(altarr::altarr_stats(x)[nm])
 
-test_that("ds$var returns LazyDataArray for backend variables", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
+ref3 <- array(as.double(seq_len(9 * 7 * 5)), c(9L, 7L, 5L))
+ref3[c(3, 50, 200)] <- NA
+dims3 <- c("lon", "lat", "time")
 
-  sst <- ds$sst
-  expect_true(S7_inherits(sst, LazyDataArray))
-  expect_equal(sst@name, "sst")
-  expect_equal(sst@dims, c("lon", "lat", "time"))
-  expect_equal(sst@dim_sizes, c(360L, 180L, 494L))
+lazy_var <- function(ref = ref3, chunk = c(4, 3, 2)) {
+  Variable(dims = dims3, data = lazy_copy(ref, chunk), attrs = list(units = "K"))
+}
+eager_var <- function(ref = ref3) Variable(dims = dims3, data = ref, attrs = list(units = "K"))
 
-  # All selection slots should be NULL (no selection yet)
-  for (s in sst@.selection) {
-    expect_null(s)
+
+# --- construction and metadata ---
+
+test_that("Variable holds altarr data without reading it", {
+  skip_if_not_installed("altarr")
+  v <- lazy_var()
+  expect_true(ndr:::is_lazy(v@data))
+  expect_equal(shape(v), c(lon = 9L, lat = 7L, time = 5L))
+  out <- capture.output(print(v))
+  expect_true(any(grepl("(lazy)", out, fixed = TRUE)))
+  da <- DataArray(variable = v, name = "x")
+  out <- capture.output(print(da))
+  expect_true(any(grepl("lazy", out)))
+  expect_equal(stat(v@data, "fetch_calls"), 0)
+})
+
+test_that("in-memory data is not lazy", {
+  expect_false(ndr:::is_lazy(ref3))
+})
+
+
+# --- isel / sel ---
+
+test_that("isel on lazy data is lazy and matches eager isel", {
+  skip_if_not_installed("altarr")
+  old <- options(altarr.max_materialize = 0)
+  on.exit(options(old))
+  v <- lazy_var()
+  cases <- list(
+    list(lat = 2:5),
+    list(time = 3L),
+    list(lon = c(9L, 1L, 1L), time = 2:4),
+    list(lat = -1L * 2:3),
+    list(lon = c(TRUE, FALSE), lat = 7L),
+    list(lon = 4L, lat = 6L, time = 1L)
+  )
+  for (cs in cases) {
+    lz <- do.call(isel, c(list(v), cs))
+    ez <- do.call(isel, c(list(eager_var()), cs))
+    expect_equal(lz@dims, ez@dims)
+    if (length(lz@dims)) {
+      expect_true(ndr:::is_lazy(lz@data))
+      expect_identical(as.array(lz), ez@data)
+    } else {
+      expect_identical(lz@data, ez@data)
+    }
   }
-
-  # Backend reference
-  expect_equal(sst@.backend$dsn, oisst_dsn)
-  expect_equal(sst@.backend$var_name, "sst")
+  expect_equal(stat(v@data, "elt"), 0)
 })
 
-test_that("ds$var returns LazyDataArray with coords", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
+test_that("selecting reads nothing; reading a selection touches only its chunks", {
+  skip_if_not_installed("altarr")
+  v <- lazy_var()
+  s <- isel(v, lon = 1:4, lat = 1:3)
+  expect_equal(stat(v@data, "fetch_calls"), 0)
+  vals <- collect(s)@data
+  expect_identical(vals, ref3[1:4, 1:3, , drop = FALSE])
+  # one chunk column along time: 3 chunks, one planned read
+  expect_equal(stat(v@data, "chunks_fetched"), 3)
+  expect_equal(stat(v@data, "fetch_calls"), 1)
+  expect_equal(stat(v@data, "elt"), 0)
+})
 
-  sst <- ds$sst
-  expect_true(length(sst@coords) > 0L)
-  expect_true("lat" %in% names(sst@coords))
-  expect_true("lon" %in% names(sst@coords))
-  expect_true("time" %in% names(sst@coords))
+test_that("chained isel composes", {
+  skip_if_not_installed("altarr")
+  r1 <- lazy_var() |> isel(lat = 2:6) |> isel(lat = 2:3, time = 5L)
+  r2 <- eager_var() |> isel(lat = 3:4, time = 5L)
+  expect_identical(as.array(r1), r2@data)
+})
+
+test_that("sel on a lazy DataArray is lazy and slices coords", {
+  skip_if_not_installed("altarr")
+  da <- DataArray(
+    variable = lazy_var(),
+    coords = list(
+      lon = ImplicitCoord(dimension = "lon", n = 9L, offset = 100, step = 1),
+      lat = ImplicitCoord(dimension = "lat", n = 7L, offset = -30, step = 10),
+      time = ExplicitCoord(dimension = "time", values = as.Date("2020-01-01") + 0:4)
+    ),
+    name = "x"
+  )
+  ez <- DataArray(variable = eager_var(), coords = da@coords, name = "x")
+  lz <- sel(da, lat = c(-20, 10), time = as.Date("2020-01-03"))
+  ee <- sel(ez, lat = c(-20, 10), time = as.Date("2020-01-03"))
+  expect_true(ndr:::is_lazy(lz@variable@data))
+  expect_equal(names(lz@coords), names(ee@coords))
+  expect_identical(as.array(lz), ee@variable@data)
+})
+
+test_that("an empty selection gives an empty array", {
+  skip_if_not_installed("altarr")
+  r <- isel(lazy_var(), lat = integer(0))
+  expect_equal(shape(r), c(lon = 9L, lat = 0L, time = 5L))
 })
 
 
-# --- collect() ---
+# --- reductions ---
 
-test_that("collect() on LazyDataArray returns DataArray", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
-
-  # Collect a small subset to avoid reading the whole thing
-  result <- ds$sst |> isel(lon = 1:3, lat = 1:3, time = 1:2) |> collect()
-  expect_true(S7_inherits(result, DataArray))
-  expect_equal(result@name, "sst")
-  expect_equal(shape(result@variable), c(lon = 3L, lat = 3L, time = 2L))
+test_that("lazy reductions match eager ones", {
+  skip_if_not_installed("altarr")
+  old <- options(altarr.max_materialize = 0, ndr.block_values = 40)
+  on.exit(options(old))
+  over <- list("time", "lon", c("lon", "time"), c("lat", "time"), dims3)
+  fns <- list(nd_mean, nd_sum, nd_min, nd_max)
+  for (fn in fns) for (d in over) for (na.rm in c(FALSE, TRUE)) {
+    lz <- fn(lazy_var(), d, na.rm = na.rm)
+    ez <- fn(eager_var(), d, na.rm = na.rm)
+    expect_equal(lz@dims, ez@dims)
+    expect_equal(lz@data, ez@data)
+  }
 })
 
-test_that("collect() on DataArray is identity", {
+test_that("lazy reductions stream chunk-aligned blocks, never element by element", {
+  skip_if_not_installed("altarr")
+  old <- options(altarr.max_materialize = 0, ndr.block_values = 4 * 3 * 2 * 3)
+  on.exit(options(old))
+  v <- lazy_var()
+  r <- nd_mean(v, "time", na.rm = TRUE)
+  expect_equal(stat(v@data, "elt"), 0)
+  # 3 x 3 x 3 chunks; blocks span the whole time axis (3 chunks): 9 reads
+  expect_equal(stat(v@data, "chunks_fetched"), 27)
+  expect_equal(stat(v@data, "fetch_calls"), 9)
+})
+
+test_that("reductions on a lazy selection read only the selection", {
+  skip_if_not_installed("altarr")
+  v <- lazy_var()
+  r <- v |> isel(lon = 1:4, lat = 1:3) |> nd_max("time", na.rm = TRUE)
+  expect_equal(r@data, apply(ref3[1:4, 1:3, ], 1:2, max, na.rm = TRUE))
+  expect_equal(stat(v@data, "chunks_fetched"), 3)
+})
+
+test_that("integer reductions keep base R's types", {
+  skip_if_not_installed("altarr")
+  iref <- array(seq_len(6 * 4), c(6L, 4L))
+  iref[2] <- NA
+  lz <- Variable(dims = c("x", "y"), data = lazy_copy(iref, c(4, 3)))
+  ez <- Variable(dims = c("x", "y"), data = iref)
+  for (fn in list(nd_sum, nd_min, nd_max, nd_mean)) {
+    for (na.rm in c(FALSE, TRUE)) {
+      expect_identical(fn(lz, "y", na.rm = na.rm)@data, fn(ez, "y", na.rm = na.rm)@data)
+      expect_identical(fn(lz, c("x", "y"), na.rm = na.rm)@data,
+                       fn(ez, c("x", "y"), na.rm = na.rm)@data)
+    }
+  }
+})
+
+test_that("min/max of all-NA cells warn and give Inf as base R does", {
+  skip_if_not_installed("altarr")
+  nref <- array(c(NA, NA, 1, 2), c(2L, 2L))
+  lz <- Variable(dims = c("x", "y"), data = lazy_copy(nref, 1))
+  expect_warning(r <- nd_min(lz, "x", na.rm = TRUE), "no non-missing")
+  expect_equal(as.vector(r@data), c(Inf, 1))
+})
+
+test_that("reduction blocks are whole chunks grown towards the target", {
+  expect_equal(ndr:::reduce_block_shape(c(10L, 10L, 10L), c(3L, 3L, 2L), 3L, 60),
+               c(3L, 3L, 6L))
+  expect_equal(ndr:::reduce_block_shape(c(10L, 10L, 10L), c(3L, 3L, 2L), 3L, 1e6),
+               c(10L, 10L, 10L))
+})
+
+
+# --- arithmetic, coercion, collect ---
+
+test_that("arithmetic on lazy data reads it and matches eager", {
+  skip_if_not_installed("altarr")
+  old <- options(altarr.max_materialize = 0)
+  on.exit(options(old))
+  lz <- lazy_var() + 273.15
+  ez <- eager_var() + 273.15
+  expect_false(ndr:::is_lazy(lz@data))
+  expect_identical(lz@data, ez@data)
+  mask <- Variable(dims = c("lat", "lon"), data = matrix(1:63 %% 2, 7, 9))
+  expect_identical((lazy_var() * mask)@data, (eager_var() * mask)@data)
+})
+
+test_that("collect() reads lazy data into memory", {
+  skip_if_not_installed("altarr")
+  v <- lazy_var()
+  cv <- collect(v)
+  expect_false(ndr:::is_lazy(cv@data))
+  expect_identical(cv@data, ref3)
+  expect_equal(cv@attrs, v@attrs)
+  da <- DataArray(variable = v, name = "x")
+  expect_identical(collect(da)@variable@data, ref3)
+  ds <- Dataset(data_vars = list(x = v))
+  expect_identical(collect(ds)@data_vars$x@data, ref3)
+})
+
+test_that("collect() on in-memory objects is identity", {
   v <- Variable(dims = c("x", "y"), data = matrix(1:6, 2, 3))
   da <- DataArray(variable = v, name = "test")
+  expect_identical(collect(v), v)
   expect_identical(collect(da), da)
 })
 
-test_that("collect() with no selection reads full variable", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
+test_that("as.array and as.data.frame read lazy data", {
+  skip_if_not_installed("altarr")
+  old <- options(altarr.max_materialize = 0)
+  on.exit(options(old))
+  da <- DataArray(variable = isel(lazy_var(), time = 1L), name = "x")
+  expect_identical(as.array(da), ref3[, , 1])
+  df <- as.data.frame(da)
+  expect_equal(df$x, as.vector(ref3[, , 1]))
+})
 
-  # Read a single time step (full lon x lat)
-  result <- ds$sst |> isel(time = 1L) |> collect()
-  expect_true(S7_inherits(result, DataArray))
-  expect_equal(shape(result@variable), c(lon = 360L, lat = 180L))
+test_that("a lazy selection saves as a recipe and reads after reload", {
+  skip_if_not_installed("altarr")
+  s <- isel(lazy_var(), lat = 2:4)
+  f <- tempfile(fileext = ".rds")
+  saveRDS(s, f)
+  s2 <- readRDS(f)
+  expect_true(ndr:::is_lazy(s2@data))
+  expect_identical(as.array(s2), ref3[, 2:4, ])
+})
+
+test_that("default_chunk splits the slowest dims first", {
+  expect_equal(ndr:::default_chunk(c(360L, 180L, 494L), 2^20),
+               c(360L, 180L, 16L))
+  expect_equal(ndr:::default_chunk(c(10L, 10L), 1e6), c(10L, 10L))
 })
 
 
-# --- Lazy isel ---
+# --- GDAL backend (needs a local file) ---
 
-test_that("isel on LazyDataArray accumulates selection", {
+oisst_dsn <- "/rdsi/PUBLIC/raad/data/ftp.cdc.noaa.gov/Datasets/noaa.oisst.v2/sst.mnmean.nc"
+
+skip_oisst <- function() {
+  skip_if_not_installed("altarr")
   skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
+}
 
-  lazy1 <- ds$sst |> isel(lat = 10:20)
-  expect_true(S7_inherits(lazy1, LazyDataArray))
-  expect_equal(lazy1@.selection$lat, 10:20)
-  expect_null(lazy1@.selection$lon)
-  expect_null(lazy1@.selection$time)
+test_that("ds$var returns a DataArray with lazy data", {
+  skip_oisst()
+  ds <- open_dataset(oisst_dsn)
+  sst <- ds$sst
+  expect_true(S7_inherits(sst, DataArray))
+  expect_true(ndr:::is_lazy(sst@variable@data))
+  expect_equal(sst@name, "sst")
+  expect_equal(sst@variable@dims, c("lon", "lat", "time"))
+  expect_equal(unname(shape(sst)), c(360L, 180L, 494L))
+  expect_true(all(c("lat", "lon", "time") %in% names(sst@coords)))
 })
 
-test_that("chained isel composes indices", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
+test_that("lazy sel + collect equals eager sel", {
+  skip_oisst()
   ds <- open_dataset(oisst_dsn)
-
-  # First select lat indices 10:20, then from that select indices 3:5
-  # Final absolute indices should be 12:14
-  lazy <- ds$sst |> isel(lat = 10:20) |> isel(lat = 3:5)
-  expect_equal(lazy@.selection$lat, 12:14)
-})
-
-
-# --- Lazy sel ---
-
-test_that("sel on LazyDataArray accumulates selection", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
-
-  lazy <- ds$sst |> sel(lat = c(-60, -30))
-  expect_true(S7_inherits(lazy, LazyDataArray))
-  expect_false(is.null(lazy@.selection$lat))
-  expect_null(lazy@.selection$lon)
-  expect_null(lazy@.selection$time)
-})
-
-
-# --- Lazy → eager equivalence ---
-
-test_that("lazy sel+collect equals eager sel", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
-
-  # Lazy: sel then collect
-  lazy_r <- ds$sst |>
-    sel(lat = c(-60, -30)) |>
-    isel(time = 1L) |>
-    collect()
-
-  # Eager: collect then sel
-  eager_r <- ds$sst |>
-    collect() |>
-    sel(lat = c(-60, -30)) |>
-    isel(time = 1L)
-
+  lazy_r <- ds$sst |> sel(lat = c(-60, -30)) |> isel(time = 1L) |> collect()
+  eager_r <- ds$sst |> isel(time = 1L) |> collect() |> sel(lat = c(-60, -30))
   expect_identical(lazy_r@variable@data, eager_r@variable@data)
-  expect_equal(shape(lazy_r@variable), shape(eager_r@variable))
+  expect_equal(lazy_r@variable@dims, c("lon", "lat"))
+  expect_false("time" %in% names(lazy_r@coords))
 })
 
-test_that("chained sel+collect equals single sel+collect", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
+test_that("reduction on GDAL-backed data streams", {
+  skip_oisst()
   ds <- open_dataset(oisst_dsn)
-
-  r1 <- ds$sst |>
-    sel(lat = c(-60, -30), time = as.Date("2020-06-01")) |>
-    collect()
-
-  r2 <- ds$sst |>
-    sel(lat = c(-60, -30)) |>
-    sel(time = as.Date("2020-06-01")) |>
-    collect()
-
-  expect_identical(r1@variable@data, r2@variable@data)
+  sub <- ds$sst |> isel(lon = 1:5, lat = 1:5, time = 1:10)
+  r <- nd_mean(sub, "time", na.rm = TRUE)
+  e <- nd_mean(collect(sub), "time", na.rm = TRUE)
+  expect_equal(r@variable@dims, c("lon", "lat"))
+  expect_equal(r@variable@data, e@variable@data)
 })
 
 
-# --- Scalar selection (dimension drop) ---
+# --- GDAL backend on a small chunked NetCDF fixture ---
+# fixtures/chunked.nc is built from fixtures/chunked.cdl with
+# `ncgen -k nc4 -o chunked.nc chunked.cdl`: temp(time, lat, lon) holds
+# t*1000 + y*10 + x (0-based) with two missing values, chunked 2 x 3 x 4;
+# cnt is a short array chunked 4 x 5 x 3.
 
-test_that("scalar isel drops dimension on collect", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
+skip_gdal_mdim <- function() {
+  skip_if_not_installed("altarr")
+  skip_if_not_installed("gdalraster")
+  skip_if_not(exists("mdim_array_read", envir = asNamespace("gdalraster")),
+              "gdalraster multidim API not available")
+}
 
-  result <- ds$sst |> isel(time = 1L) |> collect()
-  expect_equal(result@variable@dims, c("lon", "lat"))
-  expect_true(!"time" %in% names(result@coords))
+chunked_nc <- function() test_path("fixtures", "chunked.nc")
+
+chunked_ref <- function() {
+  ref <- outer(outer(0:6, 10 * (0:4), `+`), 1000 * (0:5), `+`)
+  ref[4, 3, 2] <- NA
+  ref[1, 1, 5] <- NA
+  ref
+}
+
+test_that("GDAL-backed variables are lazy and chunked like the file", {
+  skip_gdal_mdim()
+  ds <- open_dataset(chunked_nc())
+  temp <- ds$temp
+  a <- temp@variable@data
+  expect_true(ndr:::is_lazy(a))
+  expect_equal(temp@variable@dims, c("lon", "lat", "time"))
+  # NetCDF chunks 2 x 3 x 4 (time, lat, lon) are 4 x 3 x 2 in R order
+  expect_equal(ndr:::lazy_chunk(a), c(4L, 3L, 2L))
+  expect_equal(stat(a, "fetch_calls"), 0)
+  expect_equal(collect(temp)@variable@data, chunked_ref())
 })
 
+test_that("GDAL-backed sel, reductions and integer types", {
+  skip_gdal_mdim()
+  ds <- open_dataset(chunked_nc())
+  ref <- chunked_ref()
+  s <- ds$temp |> sel(lat = c(-30, 0)) |> isel(time = 2:4)
+  expect_true(ndr:::is_lazy(s@variable@data))
+  expect_equal(collect(s)@variable@data, ref[, 2:5, 2:4])
+  m <- nd_mean(s, "time", na.rm = TRUE)
+  expect_equal(m@variable@data, apply(ref[, 2:5, 2:4], 1:2, mean, na.rm = TRUE))
 
-# --- Auto-collect ---
-
-test_that("arithmetic on LazyDataArray auto-collects", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
-
-  lazy <- ds$sst |> isel(lon = 1:3, lat = 1:3, time = 1L)
-  result <- lazy + 273.15
-  expect_true(S7_inherits(result, DataArray))
-
-  # Compare with explicit collect
-  explicit <- collect(lazy) + 273.15
-  expect_equal(result@variable@data, explicit@variable@data)
+  cnt <- ds$cnt
+  expect_equal(typeof(cnt@variable@data), "integer")
+  expect_equal(ndr:::lazy_chunk(cnt@variable@data), c(3L, 5L, 4L))
+  iref <- outer(outer(0:6, 10 * (0:4), `+`), 1000 * (0:5), `+`)
+  expect_identical(collect(cnt)@variable@data, array(as.integer(iref), dim(iref)))
+  expect_identical(as.vector(nd_max(cnt, c("lon", "lat"))@variable@data),
+                   as.integer(1000 * (0:5) + 46))
 })
 
-test_that("reduction on LazyDataArray auto-collects", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
-
-  result <- ds$sst |>
-    isel(lon = 1:5, lat = 1:5, time = 1:10) |>
-    nd_mean("time", na.rm = TRUE)
-
-  expect_true(S7_inherits(result, DataArray))
-  expect_equal(result@variable@dims, c("lon", "lat"))
-})
-
-test_that("as.data.frame on LazyDataArray auto-collects", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
-
-  df <- ds$sst |>
-    isel(lon = 1:2, lat = 1:2, time = 1L) |>
-    as.data.frame()
-
-  expect_s3_class(df, "data.frame")
-  expect_equal(nrow(df), 4L)
-  expect_true("sst" %in% names(df))
-})
-
-
-# --- selection_to_hyperslab (internal) ---
-
-test_that("selection_to_hyperslab reverses R order to GDAL C order", {
-  # R order: lon, lat, time
-  dims <- c("lon", "lat", "time")
-  dim_sizes <- c(360L, 180L, 494L)
-
-  # No selection: full dimensions
-  hs <- ndr:::selection_to_hyperslab(dims, dim_sizes, list(lon = NULL, lat = NULL, time = NULL))
-  # GDAL C-order: time, lat, lon
-  expect_equal(hs$start, c(0L, 0L, 0L))
-  expect_equal(hs$count, c(494L, 180L, 360L))
-
-  # Partial selection
-  hs2 <- ndr:::selection_to_hyperslab(dims, dim_sizes, list(lon = NULL, lat = 10:20, time = 5L))
-  expect_equal(hs2$start, c(4L, 9L, 0L))   # time: 5-1=4, lat: 10-1=9, lon: 0
-  expect_equal(hs2$count, c(1L, 11L, 360L)) # time: 1, lat: 11, lon: 360
-})
-
-
-# --- Print ---
-
-test_that("print.LazyDataArray shows selection info", {
-  skip_if_not(file.exists(oisst_dsn), "OISST test data not available")
-  ds <- open_dataset(oisst_dsn)
-
-  lazy <- ds$sst |> sel(lat = c(-60, -30))
-  out <- capture.output(lazy)
-
-  expect_true(any(grepl("LazyDataArray", out)))
-  expect_true(any(grepl("not loaded", out)))
-  expect_true(any(grepl("selected", out)))
-  expect_true(any(grepl("collect", out)))
+test_that("a GDAL-backed selection saves as a recipe", {
+  skip_gdal_mdim()
+  ds <- open_dataset(chunked_nc())
+  s <- ds$temp |> isel(lat = 2:3)
+  f <- tempfile(fileext = ".rds")
+  saveRDS(s, f)
+  expect_equal(collect(readRDS(f))@variable@data, chunked_ref()[, 2:3, ])
 })

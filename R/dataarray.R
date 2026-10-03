@@ -74,4 +74,4 @@ method(shape, DataArray) <- function(x) shape(x@variable)
 `length.ndr::DataArray` <- function(x) length(x@variable)
 
 #' @export
-`as.array.ndr::DataArray` <- function(x, ...) var_data(x@variable)
+`as.array.ndr::DataArray` <- function(x, ...) var_values(x@variable)
