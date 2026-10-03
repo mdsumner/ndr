@@ -1,0 +1,39 @@
+url: https://mdsumner.github.io/ndr/
+template:
+  bootstrap: 5
+
+reference:
+- title: Data structures
+  contents:
+  - Variable
+  - DataArray
+  - Dataset
+  - as_variable
+- title: Coordinates
+  contents:
+  - coordinates
+  - ImplicitCoord
+  - ExplicitCoord
+  - starts_with("coord_")
+- title: Selection
+  contents:
+  - indexing
+  - ds_dims
+- title: Arithmetic and broadcasting
+  contents:
+  - ops
+  - broadcasting
+- title: Reductions
+  contents:
+  - reductions
+- title: Reading data
+  contents:
+  - open_dataset
+  - cf_decode_time
+  - lazy-data
+  - collect
+- title: Methods
+  contents:
+  - ndim
+  - print-methods
+  - matches("[.]ndr[:]{2}")
