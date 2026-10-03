@@ -2,6 +2,10 @@
 # (GDAL, PROJ and GEOS built from source; :latest = releases, :dev = GDAL HEAD).
 # A failure on :dev only means an upstream GDAL change that has not reached a
 # release yet.
+#
+# This mirrors gdal-r-ci's reusable check-gdal-release.yml, but sets
+# GITHUB_PAT from this repo's token so remotes can install the GitHub
+# Remotes (GDAL7, altarr); the reusable workflow cannot pass it through.
 on:
   push:
     branches: [main, master]
@@ -15,5 +19,50 @@ name: R-CMD-check.yaml
 permissions: read-all
 
 jobs:
-  gdal:
-    uses: hypertidy/gdal-r-ci/.github/workflows/check-gdal-release.yml@main
+  check:
+    name: R CMD check (GDAL ${{ matrix.gdal-variant }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gdal-variant: [latest, dev]
+    container:
+      image: ghcr.io/hypertidy/gdal-r-full:${{ matrix.gdal-variant }}
+      options: --user root
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      _R_CHECK_FORCE_SUGGESTS_: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print environment
+        run: |
+          echo "=== GDAL variant: ${{ matrix.gdal-variant }} ==="
+          gdal-config --version
+          R --version | head -1
+
+      - name: Install package dependencies
+        run: |
+          Rscript -e '
+            remotes::install_deps(
+              dependencies = c("Depends", "Imports", "LinkingTo", "Suggests"),
+              upgrade = "never"
+            )
+          '
+
+      - name: Build
+        run: R CMD build --no-build-vignettes .
+
+      - name: Check
+        run: |
+          tarball=$(ls -1 *.tar.gz | head -1)
+          R CMD check --no-manual --no-build-vignettes "$tarball"
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          for f in *.Rcheck/00check.log *.Rcheck/00install.out *.Rcheck/tests/testthat.Rout.fail; do
+            [ -f "$f" ] && echo "=== $f ===" && cat "$f"
+          done
+          true
