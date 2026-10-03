@@ -4,7 +4,7 @@
 \alias{coord_length}
 \title{Get the length of a coordinate}
 \usage{
-coord_length(x, ...)
+coord_length(x)
 }
 \arguments{
 \item{x}{A coordinate}

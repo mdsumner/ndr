@@ -74,7 +74,7 @@ ExplicitCoord <- new_class("ExplicitCoord",
 #' @param x A coordinate (ImplicitCoord or ExplicitCoord)
 #' @return Vector of coordinate values
 #' @export
-coord_values <- new_generic("coord_values", "x")
+coord_values <- new_generic("coord_values", "x", function(x) S7_dispatch())
 
 method(coord_values, ImplicitCoord) <- function(x) {
   if (x@n == 0L) return(numeric(0))
@@ -89,7 +89,7 @@ method(coord_values, ExplicitCoord) <- function(x) {
 #' @param x A coordinate
 #' @return Integer length
 #' @export
-coord_length <- new_generic("coord_length", "x")
+coord_length <- new_generic("coord_length", "x", function(x) S7_dispatch())
 
 method(coord_length, ImplicitCoord) <- function(x) x@n
 method(coord_length, ExplicitCoord) <- function(x) length(x@values)
@@ -105,7 +105,7 @@ method(coord_length, ExplicitCoord) <- function(x) length(x@values)
 #' @param value The value(s) to look up
 #' @return Integer index (1-based)
 #' @export
-coord_lookup <- new_generic("coord_lookup", "x")
+coord_lookup <- new_generic("coord_lookup", "x", function(x, value) S7_dispatch())
 
 method(coord_lookup, ImplicitCoord) <- function(x, value) {
   # n=0: no valid indices
@@ -163,7 +163,7 @@ method(coord_lookup, ExplicitCoord) <- function(x, value) {
 #' @return A new coordinate of the same type (ImplicitCoord stays implicit
 #'   if the slice is a contiguous regular subsequence)
 #' @export
-coord_slice <- new_generic("coord_slice", "x")
+coord_slice <- new_generic("coord_slice", "x", function(x, idx) S7_dispatch())
 
 method(coord_slice, ImplicitCoord) <- function(x, idx) {
   if (length(idx) == 0L) {
@@ -184,7 +184,7 @@ method(coord_slice, ImplicitCoord) <- function(x, idx) {
       step   = x@step * stride
     )
   } else {
-    # irregular slice — must materialize
+    # irregular slice - must materialize
     ExplicitCoord(dimension = x@dimension, values = coord_values(x)[idx])
   }
 }
@@ -197,7 +197,7 @@ method(coord_slice, ExplicitCoord) <- function(x, idx) {
 #' @param x A coordinate
 #' @return Character scalar
 #' @export
-coord_dim <- new_generic("coord_dim", "x")
+coord_dim <- new_generic("coord_dim", "x", function(x) S7_dispatch())
 
 method(coord_dim, ImplicitCoord) <- function(x) x@dimension
 method(coord_dim, ExplicitCoord) <- function(x) x@dimension

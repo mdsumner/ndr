@@ -29,19 +29,19 @@ NULL
 
 #' @rdname reductions
 #' @export
-nd_mean <- new_generic("nd_mean", "x")
+nd_mean <- new_generic("nd_mean", "x", function(x, dims, na.rm = FALSE) S7_dispatch())
 
 #' @rdname reductions
 #' @export
-nd_sum <- new_generic("nd_sum", "x")
+nd_sum <- new_generic("nd_sum", "x", function(x, dims, na.rm = FALSE) S7_dispatch())
 
 #' @rdname reductions
 #' @export
-nd_min <- new_generic("nd_min", "x")
+nd_min <- new_generic("nd_min", "x", function(x, dims, na.rm = FALSE) S7_dispatch())
 
 #' @rdname reductions
 #' @export
-nd_max <- new_generic("nd_max", "x")
+nd_max <- new_generic("nd_max", "x", function(x, dims, na.rm = FALSE) S7_dispatch())
 
 
 # --- Variable methods ---
@@ -83,7 +83,7 @@ reduce_variable <- function(x, dims, fn, na.rm = FALSE) {
   # apply over kept margins
   result <- apply(arr, keep_axes, fn, na.rm = na.rm)
 
-  # apply can return a vector when MARGIN is length 1 — ensure dim is set
+  # apply can return a vector when MARGIN is length 1 - ensure dim is set
   expected_shape <- unname(s[new_dims])
   if (is.null(dim(result))) {
     dim(result) <- expected_shape

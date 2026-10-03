@@ -4,7 +4,7 @@
 \alias{coord_values}
 \title{Get the values of a coordinate}
 \usage{
-coord_values(x, ...)
+coord_values(x)
 }
 \arguments{
 \item{x}{A coordinate (ImplicitCoord or ExplicitCoord)}

@@ -2,16 +2,20 @@
 % Please edit documentation in R/variable.R
 \name{ndim}
 \alias{ndim}
-\title{Get the shape of a Variable}
+\alias{shape}
+\title{Number of dimensions and shape of a Variable}
 \usage{
-ndim(x, ...)
+ndim(x)
+
+shape(x)
 }
 \arguments{
-\item{x}{A Variable}
+\item{x}{A Variable or DataArray}
 }
 \value{
-Named integer vector of dimension lengths
+\code{ndim()}: an integer. \code{shape()}: a named integer vector.
 }
 \description{
-Get the shape of a Variable
+\code{ndim()} is the number of dimensions; \code{shape()} is the named integer
+vector of dimension lengths.
 }

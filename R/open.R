@@ -60,7 +60,7 @@
 #'
 #' @examples
 #' \dontrun{
-#' # Open lazily — no data read yet
+#' # Open lazily - no data read yet
 #' ds <- open_dataset("sst.mnmean.nc")
 #' ds  # shows variables with [not loaded]
 #'
@@ -73,7 +73,7 @@
 #' # Scope to specific variables (still lazy)
 #' ds <- open_dataset("sst.mnmean.nc", vars = "sst")
 #'
-#' # Remote kerchunk-parquet — only sst schema, 12TB never touched
+#' # Remote kerchunk-parquet - only sst schema, 12TB never touched
 #' dsn <- 'ZARR:"/vsicurl/https://example.com/store.parq"'
 #' ds <- open_dataset(dsn, vars = "temp")
 #' ds$temp  # a lazy DataArray: nothing read yet
@@ -158,9 +158,9 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
   }
 
   # --- Phase 3: determine scope ---
-  # vars = NULL       → all data vars (lazy)
-  # vars = "sst"      → only sst (lazy)
-  # vars = character() → none (schema + coords only)
+  # vars = NULL       -> all data vars (lazy)
+  # vars = "sst"      -> only sst (lazy)
+  # vars = character() -> none (schema + coords only)
   if (!is.null(vars) && length(vars) > 0L) {
     missing <- setdiff(vars, data_var_names)
     if (length(missing) > 0L) {

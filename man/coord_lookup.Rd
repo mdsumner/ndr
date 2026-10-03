@@ -4,7 +4,7 @@
 \alias{coord_lookup}
 \title{Look up integer index for a coordinate value}
 \usage{
-coord_lookup(x, ...)
+coord_lookup(x, value)
 }
 \arguments{
 \item{x}{A coordinate}
