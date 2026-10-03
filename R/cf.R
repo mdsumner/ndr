@@ -27,7 +27,7 @@ cf_parse_time_units <- function(units) {
   unit <- tolower(trimws(parts[1L]))
   ref_str <- trimws(parts[2L])
 
-  # Normalise reference string — handle "1800-1-1" as well as "1800-01-01"
+  # Normalise reference string - handle "1800-1-1" as well as "1800-01-01"
   # Try POSIXct first (handles datetime refs), fall back to Date
   origin <- tryCatch(
     as.POSIXct(ref_str, tz = "UTC"),

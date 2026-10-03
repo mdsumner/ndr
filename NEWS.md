@@ -1,5 +1,26 @@
 # ndr (development)
 
+## Indexes
+
+* Coordinates are now indexes, after xarray's custom Index API. `Index` is
+  an abstract S7 class with generics `index_dims()`, `index_sizes()`,
+  `index_coords()`, `index_sel()`, `index_isel()`, `index_drop()` and
+  `index_equals()`. `ImplicitCoord` and `ExplicitCoord` implement it; any
+  package can add a new kind of index. `sel()`, `isel()`, reductions and
+  `as.data.frame()` go through the contract.
+* Arithmetic now checks alignment: when both operands have an index on a
+  shared dim and the indexes differ, it is an error. Set
+  `options(ndr.join = "override")` for the old "take the left coords"
+  behaviour.
+* New `AffineIndex`: one index for an x/y grid from a GDAL geotransform
+  (rotation allowed) plus its CRS. Regular subsets stay affine; irregular
+  subsets of north-up grids become 1D coords. `as_geotransform()`,
+  `set_affine_index()`.
+* New `open_raster()` opens one band of a classic GDAL raster as a lazy
+  DataArray with an `AffineIndex`. `open_dataset()` builds an
+  `AffineIndex` when a variable has a CRS and regular HORIZONTAL_X /
+  HORIZONTAL_Y coordinates.
+
 ## Lazy `sel()` → `collect()` pipeline
 
 * `LazyDataArray` class — lazy representation of a variable that carries a

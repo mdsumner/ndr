@@ -18,7 +18,7 @@ lazy chunked array from the altarr package (see \link{lazy-data}).}
 }
 \description{
 The fundamental building block. A Variable is an N-dimensional array that
-knows the names of its dimensions. It does NOT know about coordinates —
+knows the names of its dimensions. It does NOT know about coordinates -
 that's DataArray's job.
 }
 \examples{

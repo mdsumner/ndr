@@ -4,7 +4,7 @@
 \alias{coord_slice}
 \title{Slice a coordinate by integer indices}
 \usage{
-coord_slice(x, ...)
+coord_slice(x, idx)
 }
 \arguments{
 \item{x}{A coordinate}

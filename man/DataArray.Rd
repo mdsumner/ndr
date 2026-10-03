@@ -9,8 +9,9 @@ DataArray(variable = Variable(), coords = list(), name = character(0))
 \arguments{
 \item{variable}{A Variable}
 
-\item{coords}{Named list of coordinate objects (ImplicitCoord or ExplicitCoord).
-Each coordinate's \code{dim} property must match one of the Variable's \code{dims}.}
+\item{coords}{Named list of \link{indexes} (ImplicitCoord, ExplicitCoord,
+AffineIndex, ...). Each index's dims must be among the Variable's \code{dims},
+with matching sizes.}
 
 \item{name}{Optional name for this data array (character, length 0 or 1).}
 }

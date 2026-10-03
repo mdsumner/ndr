@@ -4,7 +4,7 @@
 \alias{coord_dim}
 \title{Get the dimension name of a coordinate}
 \usage{
-coord_dim(x, ...)
+coord_dim(x)
 }
 \arguments{
 \item{x}{A coordinate}

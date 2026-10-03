@@ -74,7 +74,7 @@ variable with dimensions (time, lat, lon), the R array has
 }
 \examples{
 \dontrun{
-# Open lazily — no data read yet
+# Open lazily - no data read yet
 ds <- open_dataset("sst.mnmean.nc")
 ds  # shows variables with [not loaded]
 
@@ -87,7 +87,7 @@ ds$sst |> sel(lat = c(-60, -30)) |> nd_mean("time", na.rm = TRUE)
 # Scope to specific variables (still lazy)
 ds <- open_dataset("sst.mnmean.nc", vars = "sst")
 
-# Remote kerchunk-parquet — only sst schema, 12TB never touched
+# Remote kerchunk-parquet - only sst schema, 12TB never touched
 dsn <- 'ZARR:"/vsicurl/https://example.com/store.parq"'
 ds <- open_dataset(dsn, vars = "temp")
 ds$temp  # a lazy DataArray: nothing read yet
