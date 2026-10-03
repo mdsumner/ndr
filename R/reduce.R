@@ -121,10 +121,7 @@ reduce_dataarray <- function(x, dims, fn, ...) {
   new_var <- fn(x@variable, dims, ...)
 
   # drop coords for reduced dims
-  new_coords <- Filter(
-    function(c) !coord_dim(c) %in% dims,
-    x@coords
-  )
+  new_coords <- drop_indexes(x@coords, dims)
 
   DataArray(variable = new_var, coords = new_coords, name = x@name)
 }

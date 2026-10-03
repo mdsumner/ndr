@@ -165,10 +165,12 @@ method(print, Dataset) <- function(x, ...) {
 # --- helpers ---
 
 format_coord_summary <- function(coord) {
-  if (S7_inherits(coord, ImplicitCoord)) {
+  if (S7_inherits(coord, AffineIndex)) {
+    format_affine_summary(coord)
+  } else if (S7_inherits(coord, ImplicitCoord)) {
     end_val <- coord@offset + (coord@n - 1L) * coord@step
     sprintf("(%s) %g to %g", coord@dimension, coord@offset, end_val)
-  } else {
+  } else if (S7_inherits(coord, ExplicitCoord)) {
     n <- coord_length(coord)
     vals <- coord@values
     cls <- class(vals)[1]
@@ -177,6 +179,10 @@ format_coord_summary <- function(coord) {
     } else {
       sprintf("(%s) %s %s ... %s", coord@dimension, cls, format(vals[1]), format(vals[n]))
     }
+  } else {
+    # any other Index
+    sprintf("(%s) %s", paste(index_dims(coord), collapse = ", "),
+            class(coord)[1L])
   }
 }
 

@@ -157,6 +157,12 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
     }
   }
 
+  # --- Phase 2b: a georeferenced x/y pair becomes one AffineIndex ---
+  # When a data variable has a CRS and its HORIZONTAL_X / HORIZONTAL_Y
+  # dimensions both have regular coordinates, the grid and its CRS are
+  # carried together (see ?AffineIndex).
+  coords <- affine_coords_from_arrays(coords, arrays[data_var_names])
+
   # --- Phase 3: determine scope ---
   # vars = NULL       -> all data vars (lazy)
   # vars = "sst"      -> only sst (lazy)
@@ -236,6 +242,70 @@ backend_lazy_var <- function(be, var_name) {
   )
   assign(var_name, v, envir = be$cache)
   v
+}
+
+
+#' @keywords internal
+#' @noRd
+affine_coords_from_arrays <- function(coords, arrays) {
+  for (arr in arrays) {
+    crs <- tryCatch(arr@crs, error = function(e) NA_character_)
+    if (length(crs) != 1L || is.na(crs) || !nzchar(crs)) next
+    gd <- arr@dimensions
+    if (is.null(gd$type)) next
+    xd <- gd$name[gd$type %in% "HORIZONTAL_X"]
+    yd <- gd$name[gd$type %in% "HORIZONTAL_Y"]
+    if (length(xd) != 1L || length(yd) != 1L) next
+    if (is.null(coords[[xd]]) || is.null(coords[[yd]])) next
+    ix <- affine_from_coords(coords[[xd]], coords[[yd]], crs)
+    if (is.null(ix)) next
+    coords[c(xd, yd)] <- NULL
+    return(c(stats::setNames(list(ix), paste(c(xd, yd), collapse = ",")), coords))
+  }
+  coords
+}
+
+
+#' Open a raster band as a lazy DataArray
+#'
+#' Opens one band of a classic (2D) GDAL raster, such as a GeoTIFF or COG,
+#' as a DataArray with lazy altarr data and an [AffineIndex] built from the
+#' dataset's geotransform and CRS. Nothing but metadata is read until
+#' values are asked for.
+#'
+#' @param dsn Data source name (file path, URL, or GDAL DSN string)
+#' @param band Band number (1-based)
+#' @param dims Names for the column and row dimensions
+#' @return A DataArray with dims `dims` (columns first, as GDAL7 returns
+#'   them)
+#'
+#' @examples
+#' \dontrun{
+#' r <- open_raster("/vsicurl/https://example.com/dem.tif")
+#' r  # coords: (x, y) affine ...
+#' r |> sel(x = c(140, 150), y = c(-45, -40)) |> collect()
+#' }
+#' @export
+open_raster <- function(dsn, band = 1L, dims = c("x", "y")) {
+  check_gdal7()
+  check_altarr()
+  ds <- GDAL7::gdal_open(dsn)
+  gt <- ds@geotransform
+  if (is.null(gt)) gt <- c(0, 1, 0, 0, 0, 1)
+  crs <- tryCatch(ds@crs, error = function(e) character())
+  crs <- crs[!is.na(crs) & nzchar(crs)]
+  b <- GDAL7::get_raster_band(ds, band)
+  data <- GDAL7::as_altarr(b)
+  dimnames(data) <- NULL
+  ix <- AffineIndex(
+    dims = dims, shape = as.integer(dim(data)),
+    transform = unname(as.double(gt)), crs = as.character(crs)
+  )
+  DataArray(
+    variable = Variable(dims = dims, data = data),
+    coords = stats::setNames(list(ix), paste(dims, collapse = ",")),
+    name = sprintf("band_%d", as.integer(band))
+  )
 }
 
 
