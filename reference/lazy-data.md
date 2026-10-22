@@ -36,4 +36,4 @@ Every Variable, DataArray and Dataset method accepts lazy data:
 The block size for reductions is `getOption("ndr.block_values")` values
 (default `2^22`); the chunk cache and fetch batching are altarr's
 options (see
-[`?altarr::altarr_contract`](https://rdrr.io/pkg/altarr/man/altarr_contract.html)).
+[`?altarr::altarr_contract`](https://hypertidy.github.io/altarr/reference/altarr_contract.html)).

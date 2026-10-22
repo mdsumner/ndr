@@ -42,22 +42,22 @@ ndr’s job. The backend is just a reader.
 Complete end-to-end multidim read pipeline. Tested against local NetCDF
 (OISST) and remote kerchunk-parquet (BRAN2023 12TB via `/vsicurl/`).
 
-| Function / Method                                  | Status | Notes                                                |
-|----------------------------------------------------|--------|------------------------------------------------------|
-| `new(GDALMultiDimRaster, dsn, ...)`                | ✅     | Opens any GDAL-supported multidim source             |
-| `ds$getArrayNames()`                               | ✅     | Lists all arrays including coords                    |
-| `ds$openArrayFromFullname(path, opts)`             | ✅     | Returns MDArray pointer                              |
-| `ds$getRootGroup()`                                | ✅     | Returns GDALGroup pointer                            |
-| `ds$close()`                                       | ✅     |                                                      |
-| `mdim_array_info(arr)`                             | ✅     | dim_names, shape, dtype, unit, nodata, scale, offset |
-| `mdim_array_read(arr, start, count, step, decode)` | ✅     | Flat vector + `$gis` attribute                       |
-| `mdim_dim_values(arr, dim_index)`                  | ✅     | Coordinate values for a dimension                    |
-| `mdim_coord_info(arr, dim_index)`                  | ✅     | Dim metadata including CF units + calendar           |
-| `mdim_array_attr_names(arr)`                       | ✅     | List attribute names                                 |
-| `mdim_array_attr(arr, name)`                       | ✅     | Read attribute (string or numeric)                   |
-| `mdim_group_attr_names(group)`                     | ✅     | List group attribute names                           |
-| `mdim_group_attr(group, name)`                     | ✅     | Read group attribute                                 |
-| `mdim_group_attrs(group)`                          | ✅     | All group attributes as named list                   |
+| Function / Method | Status | Notes |
+|----|----|----|
+| `new(GDALMultiDimRaster, dsn, ...)` | ✅ | Opens any GDAL-supported multidim source |
+| `ds$getArrayNames()` | ✅ | Lists all arrays including coords |
+| `ds$openArrayFromFullname(path, opts)` | ✅ | Returns MDArray pointer |
+| `ds$getRootGroup()` | ✅ | Returns GDALGroup pointer |
+| `ds$close()` | ✅ |  |
+| `mdim_array_info(arr)` | ✅ | dim_names, shape, dtype, unit, nodata, scale, offset |
+| `mdim_array_read(arr, start, count, step, decode)` | ✅ | Flat vector + `$gis` attribute |
+| `mdim_dim_values(arr, dim_index)` | ✅ | Coordinate values for a dimension |
+| `mdim_coord_info(arr, dim_index)` | ✅ | Dim metadata including CF units + calendar |
+| `mdim_array_attr_names(arr)` | ✅ | List attribute names |
+| `mdim_array_attr(arr, name)` | ✅ | Read attribute (string or numeric) |
+| `mdim_group_attr_names(group)` | ✅ | List group attribute names |
+| `mdim_group_attr(group, name)` | ✅ | Read group attribute |
+| `mdim_group_attrs(group)` | ✅ | All group attributes as named list |
 
 ### Output convention: `$gis` attribute
 
@@ -214,13 +214,13 @@ requires avoiding copies. Not blocking for ndr 0.x.
 
 ndr 0.1.0 is pure in-memory. To support backends:
 
-| Feature                                                                              | Purpose                                                                                                                                                      | Complexity | Status         |
-|--------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|------------|----------------|
-| [`open_dataset()`](https://mdsumner.github.io/ndr/reference/open_dataset.md) generic | Entry point dispatching to backends                                                                                                                          | Low        | Ready to build |
-| Backend registration                                                                 | S7 dispatch on source type                                                                                                                                   | Low        | Ready to build |
-| CF time decode                                                                       | Parse “days since …” to R Date/POSIXct                                                                                                                       | Low        | Ready to build |
-| Lazy Variable                                                                        | `@data` is a callback, not an array                                                                                                                          | Medium     | Future         |
-| Chunk-aware read                                                                     | [`sel()`](https://mdsumner.github.io/ndr/reference/indexing.md)/[`isel()`](https://mdsumner.github.io/ndr/reference/indexing.md) calls `nd_read()` on demand | Medium     | Future         |
+| Feature | Purpose | Complexity | Status |
+|----|----|----|----|
+| [`open_dataset()`](https://mdsumner.github.io/ndr/reference/open_dataset.md) generic | Entry point dispatching to backends | Low | Ready to build |
+| Backend registration | S7 dispatch on source type | Low | Ready to build |
+| CF time decode | Parse “days since …” to R Date/POSIXct | Low | Ready to build |
+| Lazy Variable | `@data` is a callback, not an array | Medium | Future |
+| Chunk-aware read | [`sel()`](https://mdsumner.github.io/ndr/reference/indexing.md)/[`isel()`](https://mdsumner.github.io/ndr/reference/indexing.md) calls `nd_read()` on demand | Medium | Future |
 
 An eager
 [`open_dataset()`](https://mdsumner.github.io/ndr/reference/open_dataset.md)

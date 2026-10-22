@@ -9,14 +9,14 @@ Branch: <https://github.com/mdsumner/gdalraster/tree/gdalmultidim-api>
 
 ## Status summary
 
-| \#  | Issue                              | Severity   | Status                              |
-|-----|------------------------------------|------------|-------------------------------------|
-| 1   | ~~Dimension order reversal~~       | ~~Medium~~ | ✅ Resolved — documented convention |
-| 2   | ~~String attribute reading fails~~ | ~~Low~~    | ✅ Resolved df7bd08ea               |
-| 3   | ~~Group-level attributes~~         | ~~Low~~    | ✅ Resolved df7bd08ea               |
-| 4   | Subgroup navigation                | Low        | Open — not needed yet               |
-| 5   | ~~Step/stride in mdim_array_read~~ | ~~Low~~    | ✅ Resolved — always worked         |
-| 6   | ~~\$gis attribute for output~~     | ~~Medium~~ | ✅ Resolved — matches read_ds()     |
+| \# | Issue | Severity | Status |
+|----|----|----|----|
+| 1 | ~~Dimension order reversal~~ | ~~Medium~~ | ✅ Resolved — documented convention |
+| 2 | ~~String attribute reading fails~~ | ~~Low~~ | ✅ Resolved df7bd08ea |
+| 3 | ~~Group-level attributes~~ | ~~Low~~ | ✅ Resolved df7bd08ea |
+| 4 | Subgroup navigation | Low | Open — not needed yet |
+| 5 | ~~Step/stride in mdim_array_read~~ | ~~Low~~ | ✅ Resolved — always worked |
+| 6 | ~~\$gis attribute for output~~ | ~~Medium~~ | ✅ Resolved — matches read_ds() |
 
 ## Open issues
 
@@ -156,22 +156,22 @@ mdim_coord_info(arr, 0)
 
 ## Current API surface
 
-| Function / Method                                  | Status | Notes                                                |
-|----------------------------------------------------|--------|------------------------------------------------------|
-| `new(GDALMultiDimRaster, dsn, ...)`                | ✅     | Opens any GDAL-supported multidim source             |
-| `ds$getArrayNames()`                               | ✅     | Lists all arrays including coords                    |
-| `ds$openArrayFromFullname(path, opts)`             | ✅     | Returns MDArray pointer                              |
-| `ds$getRootGroup()`                                | ✅     | Returns GDALGroup pointer                            |
-| `ds$close()`                                       | ✅     |                                                      |
-| `mdim_array_info(arr)`                             | ✅     | dim_names, shape, dtype, unit, nodata, scale, offset |
-| `mdim_array_read(arr, start, count, step, decode)` | ✅     | Flat vector + \$gis attribute                        |
-| `mdim_dim_values(arr, dim_index)`                  | ✅     | Coordinate values for a dimension                    |
-| `mdim_coord_info(arr, dim_index)`                  | ✅     | Dim metadata including CF units + calendar           |
-| `mdim_array_attr_names(arr)`                       | ✅     | List attribute names                                 |
-| `mdim_array_attr(arr, name)`                       | ✅     | Read attribute (string or numeric)                   |
-| `mdim_group_attr_names(group)`                     | ✅     | List group attribute names                           |
-| `mdim_group_attr(group, name)`                     | ✅     | Read group attribute                                 |
-| `mdim_group_attrs(group)`                          | ✅     | All group attributes as named list                   |
+| Function / Method | Status | Notes |
+|----|----|----|
+| `new(GDALMultiDimRaster, dsn, ...)` | ✅ | Opens any GDAL-supported multidim source |
+| `ds$getArrayNames()` | ✅ | Lists all arrays including coords |
+| `ds$openArrayFromFullname(path, opts)` | ✅ | Returns MDArray pointer |
+| `ds$getRootGroup()` | ✅ | Returns GDALGroup pointer |
+| `ds$close()` | ✅ |  |
+| `mdim_array_info(arr)` | ✅ | dim_names, shape, dtype, unit, nodata, scale, offset |
+| `mdim_array_read(arr, start, count, step, decode)` | ✅ | Flat vector + \$gis attribute |
+| `mdim_dim_values(arr, dim_index)` | ✅ | Coordinate values for a dimension |
+| `mdim_coord_info(arr, dim_index)` | ✅ | Dim metadata including CF units + calendar |
+| `mdim_array_attr_names(arr)` | ✅ | List attribute names |
+| `mdim_array_attr(arr, name)` | ✅ | Read attribute (string or numeric) |
+| `mdim_group_attr_names(group)` | ✅ | List group attribute names |
+| `mdim_group_attr(group, name)` | ✅ | Read group attribute |
+| `mdim_group_attrs(group)` | ✅ | All group attributes as named list |
 
 ## ndr backend readiness
 

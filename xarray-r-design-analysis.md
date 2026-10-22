@@ -669,14 +669,14 @@ analysis through GDAL.
 
 The GDAL multidim → ndr mapping is nearly 1:1:
 
-| GDAL multidim concept                        | ndr concept                                                                     |
-|----------------------------------------------|---------------------------------------------------------------------------------|
-| `GDALGroup`                                  | `Dataset`                                                                       |
-| `MDArray`                                    | `Variable`                                                                      |
-| `GDALDimension`                              | dim name + `ImplicitCoord` or `ExplicitCoord`                                   |
-| `MDArray::GetAttribute()`                    | `attrs` list                                                                    |
-| `MDArray::GetView("[i,j,:]")`                | [`isel()`](https://mdsumner.github.io/ndr/reference/indexing.md) implementation |
-| `scale_factor` / `add_offset` / `_FillValue` | decoded by GDAL before ndr sees it                                              |
+| GDAL multidim concept | ndr concept |
+|----|----|
+| `GDALGroup` | `Dataset` |
+| `MDArray` | `Variable` |
+| `GDALDimension` | dim name + `ImplicitCoord` or `ExplicitCoord` |
+| `MDArray::GetAttribute()` | `attrs` list |
+| `MDArray::GetView("[i,j,:]")` | [`isel()`](https://mdsumner.github.io/ndr/reference/indexing.md) implementation |
+| `scale_factor` / `add_offset` / `_FillValue` | decoded by GDAL before ndr sees it |
 
 #### Backend paths (prioritised)
 
@@ -734,13 +734,13 @@ R has seen at least five serious attempts at something like xarray, each
 attacking a different piece of the problem. Understanding why each fell
 short is essential to avoiding the same fate.
 
-| Package          | Named dims      | Broadcasting    | Lazy/chunked    | File backends    | Active      |
-|------------------|-----------------|-----------------|-----------------|------------------|-------------|
-| tbl_cube/cubelyr | ✓ (D/M split)   | ✗               | ✗               | ✗                | maintenance |
-| rray             | ✗ (by position) | ✓ (NumPy-style) | ✗               | ✗                | abandoned   |
-| dibble           | ✓ (by name)     | ✓ (by name)     | ✗               | ✗                | active      |
-| stars            | ✓               | partial         | partial (proxy) | ✓ (GDAL, NetCDF) | active      |
-| proposed         | ✓ (by name)     | ✓ (by name)     | ✓ (fundamental) | ✓ (pluggable)    | —           |
+| Package | Named dims | Broadcasting | Lazy/chunked | File backends | Active |
+|----|----|----|----|----|----|
+| tbl_cube/cubelyr | ✓ (D/M split) | ✗ | ✗ | ✗ | maintenance |
+| rray | ✗ (by position) | ✓ (NumPy-style) | ✗ | ✗ | abandoned |
+| dibble | ✓ (by name) | ✓ (by name) | ✗ | ✗ | active |
+| stars | ✓ | partial | partial (proxy) | ✓ (GDAL, NetCDF) | active |
+| proposed | ✓ (by name) | ✓ (by name) | ✓ (fundamental) | ✓ (pluggable) | — |
 
 **tbl_cube** got the data model right (dimensions vs measures, clean
 separation) but had no path to real data. It was a data structure
