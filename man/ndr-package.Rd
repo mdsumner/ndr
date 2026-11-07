@@ -6,7 +6,7 @@
 \alias{ndr-package}
 \title{ndr: Named-Dimension Arrays with Coordinate-Based Indexing}
 \description{
-Provides Variable, DataArray, and Dataset classes for N-dimensional arrays with named dimensions and coordinate-based indexing. Arithmetic operations broadcast by dimension name, not position. Designed as a minimal foundation for lazy, multi-file scientific data access — the core data structures without any file backends.
+Provides Variable, DataArray, and Dataset classes for N-dimensional arrays with named dimensions and coordinate-based indexing. Arithmetic operations broadcast by dimension name, not position. Designed as a minimal foundation for lazy, multi-file scientific data access - the core data structures without any file backends.
 }
 \seealso{
 Useful links:

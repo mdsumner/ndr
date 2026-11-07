@@ -45,7 +45,7 @@ s
 
 ## Coordinates
 
-`ImplicitCoord` defines regular grids with zero memory — just offset,
+`ImplicitCoord` defines regular grids with zero memory - just offset,
 step, and count. `ExplicitCoord` holds arbitrary coordinate values.
 
 ``` r
@@ -111,7 +111,7 @@ da
 ## Broadcasting
 
 Arithmetic broadcasts by dimension name. A 3D temperature field times a
-2D land mask just works — dimensions are aligned by name, not position.
+2D land mask just works - dimensions are aligned by name, not position.
 
 ``` r
 temp <- Variable(
