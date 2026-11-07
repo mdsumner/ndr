@@ -4,7 +4,7 @@
 \alias{open_dataset}
 \title{Open a dataset from a file or URL}
 \usage{
-open_dataset(dsn, vars = NULL, ...)
+open_dataset(dsn, vars = NULL, ..., engine = NULL)
 }
 \arguments{
 \item{dsn}{Data source name. A file path, URL, or GDAL connection string
@@ -14,21 +14,37 @@ open_dataset(dsn, vars = NULL, ...)
 includes all data variables. Use \code{character()} for schema + coords only.
 All variables are loaded lazily on first access via \code{$}.}
 
-\item{...}{Reserved for future use.}
+\item{...}{Passed to \code{\link[zaro:zaro]{zaro::zaro()}} for the \code{"zaro"} engine (e.g.
+\code{anonymous = TRUE}, \verb{region =}); otherwise unused.}
+
+\item{engine}{\code{"gdal"} or \code{"zaro"}. The default picks \code{"zaro"} for zaro
+objects and for \verb{s3://}, \verb{gs://}, \verb{virtualizarr://}, \verb{mdimrefs://} and
+\verb{reference+json://}/\verb{reference+parquet://} sources, else \code{"gdal"}.}
 }
 \value{
 A \link{Dataset} with coordinates, global attributes, and lazy data
 variables whose values are read only when used.
 }
 \description{
-Read a multidimensional data source into an ndr Dataset. Currently supports
-any source that GDAL's multidim API can read: NetCDF, HDF5, Zarr v2/v3,
-kerchunk-parquet virtual stores, and VRT multidim. Works with local paths,
-\verb{/vsicurl/}, \verb{/vsis3/}, and other GDAL virtual filesystems.
+Read a multidimensional data source into an ndr Dataset, through one of
+two engines:
 }
 \details{
-Requires the GDAL7 package (\code{remotes::install_github("rgdal-dev/GDAL7")},
-GDAL >= 3.10) and, for reading data, the altarr package
+\itemize{
+\item \code{"gdal"}: any source GDAL's multidim API can read (NetCDF, HDF5, Zarr
+v2/v3, kerchunk-parquet virtual stores, VRT multidim), from local paths,
+\verb{/vsicurl/}, \verb{/vsis3/} and other GDAL virtual filesystems. Needs the
+GDAL7 package (\code{remotes::install_github("rgdal-dev/GDAL7")},
+GDAL >= 3.10).
+\item \code{"zaro"}: Zarr V2/V3 and virtual Zarr (kerchunk, VirtualiZarr Parquet,
+mdim-refs) read by the zaro package
+(\code{remotes::install_github("hypertidy/zaro")}), with no GDAL in the
+path. Takes anything \code{\link[zaro:zaro]{zaro::zaro()}} opens, such as \verb{s3://} and \verb{gs://}
+URIs, \verb{virtualizarr://} and \verb{mdimrefs://} sources, or a store or
+\code{\link[zaro:zaro_dataset]{zaro::zaro_dataset()}} object.
+}
+
+Reading data needs the altarr package
 (\code{remotes::install_github("hypertidy/altarr")}).
 \subsection{Lazy loading}{
 
@@ -62,6 +78,15 @@ grids and time coordinates are stored as \link{ExplicitCoord}.
 Time dimensions (GDAL type "TEMPORAL") are automatically decoded from
 their CF units (e.g. "days since 1800-01-01") to R Date or POSIXct values
 using \code{\link[=cf_decode_time]{cf_decode_time()}}.
+}
+
+\subsection{The zaro engine}{
+
+Consolidated metadata is one request for the whole store. Data
+variables are CF-decoded as they are read: fill and missing values read
+as \code{NA}, and \code{scale_factor}/\code{add_offset} are applied. Those attributes
+move from the Variable's \code{attrs} to its \code{encoding}. Arrays without
+dimension names get names from zaro (see \code{\link[zaro:zaro_dataset]{zaro::zaro_dataset()}}).
 }
 
 \subsection{Dimension ordering}{
