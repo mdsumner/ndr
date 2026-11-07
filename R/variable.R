@@ -1,7 +1,7 @@
 #' Variable: a named-dimension array
 #'
 #' The fundamental building block. A Variable is an N-dimensional array that
-#' knows the names of its dimensions. It does NOT know about coordinates —
+#' knows the names of its dimensions. It does NOT know about coordinates -
 #' that's DataArray's job.
 #'
 #' @param dims Character vector of dimension names.
@@ -41,7 +41,7 @@ Variable <- new_class("Variable",
       return(NULL)
     }
     if (nd == 0L) {
-      # bare vector — treat as 1D
+      # bare vector - treat as 1D
       if (length(self@dims) != 1L)
         return("vector data requires exactly one dim name")
       return(NULL)
@@ -58,18 +58,22 @@ Variable <- new_class("Variable",
   }
 )
 
-#' Get the shape of a Variable
-#' @param x A Variable
-#' @return Named integer vector of dimension lengths
+#' Number of dimensions and shape of a Variable
+#'
+#' `ndim()` is the number of dimensions; `shape()` is the named integer
+#' vector of dimension lengths.
+#' @param x A Variable or DataArray
+#' @return `ndim()`: an integer. `shape()`: a named integer vector.
 #' @export
-ndim <- new_generic("ndim", "x")
+ndim <- new_generic("ndim", "x", function(x) S7_dispatch())
 
 method(ndim, Variable) <- function(x) {
   length(x@dims)
 }
 
+#' @rdname ndim
 #' @export
-shape <- new_generic("shape", "x")
+shape <- new_generic("shape", "x", function(x) S7_dispatch())
 
 method(shape, Variable) <- function(x) {
   if (length(x@dims) == 0L) return(stats::setNames(integer(), character()))

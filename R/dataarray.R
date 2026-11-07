@@ -5,8 +5,9 @@
 #' primary user-facing object for single-variable data.
 #'
 #' @param variable A Variable
-#' @param coords Named list of coordinate objects (ImplicitCoord or ExplicitCoord).
-#'   Each coordinate's `dim` property must match one of the Variable's `dims`.
+#' @param coords Named list of [indexes] (ImplicitCoord, ExplicitCoord,
+#'   AffineIndex, ...). Each index's dims must be among the Variable's `dims`,
+#'   with matching sizes.
 #' @param name Optional name for this data array (character, length 0 or 1).
 #'
 #' @examples
@@ -38,23 +39,8 @@ DataArray <- new_class("DataArray",
     s <- shape(v)
     vdims <- names(s)
 
-    for (nm in names(self@coords)) {
-      coord <- self@coords[[nm]]
-      cdim <- coord_dim(coord)
-      if (!cdim %in% vdims) {
-        return(sprintf(
-          "coordinate '%s' references dim '%s' which is not in the variable's dims (%s)",
-          nm, cdim, paste(vdims, collapse = ", ")
-        ))
-      }
-      clen <- coord_length(coord)
-      if (clen != s[cdim]) {
-        return(sprintf(
-          "coordinate '%s' has length %d but dim '%s' has size %d",
-          nm, clen, cdim, s[cdim]
-        ))
-      }
-    }
+    msg <- check_indexes(self@coords, s, "variable's dims")
+    if (!is.null(msg)) return(msg)
     NULL
   }
 )

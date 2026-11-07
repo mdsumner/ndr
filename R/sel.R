@@ -111,23 +111,8 @@ method(isel, DataArray) <- function(.data, ...) {
   # apply isel to the underlying Variable
   new_var <- isel(.data@variable, ...)
 
-  # slice coordinates
-  s <- shape(.data@variable)
-  new_coords <- list()
-  for (nm in names(.data@coords)) {
-    coord <- .data@coords[[nm]]
-    cdim <- coord_dim(coord)
-    if (cdim %in% names(selections)) {
-      sel_idx <- selections[[cdim]]
-      if (length(sel_idx) == 1L) {
-        # dimension is being dropped, don't include coord
-        next
-      }
-      new_coords[[nm]] <- coord_slice(coord, sel_idx)
-    } else {
-      new_coords[[nm]] <- coord
-    }
-  }
+  # each index works out its own subset
+  new_coords <- isel_indexes(.data@coords, selections)
 
   DataArray(variable = new_var, coords = new_coords, name = .data@name)
 }
@@ -144,18 +129,7 @@ method(isel, Dataset) <- function(.data, ...) {
     do.call(isel, c(list(v), v_sels))
   })
 
-  new_coords <- list()
-  for (nm in names(.data@coords)) {
-    coord <- .data@coords[[nm]]
-    cdim <- coord_dim(coord)
-    if (cdim %in% names(selections)) {
-      sel_idx <- selections[[cdim]]
-      if (length(sel_idx) == 1L) next
-      new_coords[[nm]] <- coord_slice(coord, sel_idx)
-    } else {
-      new_coords[[nm]] <- coord
-    }
-  }
+  new_coords <- isel_indexes(.data@coords, selections)
 
   Dataset(data_vars = new_vars, coords = new_coords, attrs = .data@attrs)
 }
@@ -171,35 +145,8 @@ method(sel, DataArray) <- function(.data, ...) {
   selections <- list(...)
   if (length(selections) == 0L) return(.data)
 
-  # convert coordinate values to integer indices
-  int_sels <- list()
-  for (d in names(selections)) {
-    val <- selections[[d]]
-    # find the coord for this dim
-    coord <- NULL
-    for (c in .data@coords) {
-      if (coord_dim(c) == d) { coord <- c; break }
-    }
-    if (is.null(coord)) {
-      stop(sprintf("no coordinate found for dimension '%s'", d))
-    }
-
-    if (length(val) == 2L && is_orderable(val)) {
-      # range selection: find all indices between val[1] and val[2]
-      all_vals <- coord_values(coord)
-      lo <- min(val)
-      hi <- max(val)
-      mask <- all_vals >= lo & all_vals <= hi
-      int_sels[[d]] <- which(mask)
-    } else if (length(val) == 1L) {
-      # single value: nearest lookup
-      int_sels[[d]] <- coord_lookup(coord, val)
-    } else {
-      # multiple specific values
-      int_sels[[d]] <- coord_lookup(coord, val)
-    }
-  }
-
+  # each index turns its labels into integer positions
+  int_sels <- sel_positions(.data@coords, selections)
   do.call(isel, c(list(.data), int_sels))
 }
 
@@ -208,29 +155,6 @@ method(sel, Dataset) <- function(.data, ...) {
   selections <- list(...)
   if (length(selections) == 0L) return(.data)
 
-  # convert to integer indices using dataset coords
-  int_sels <- list()
-  for (d in names(selections)) {
-    val <- selections[[d]]
-    coord <- NULL
-    for (c in .data@coords) {
-      if (coord_dim(c) == d) { coord <- c; break }
-    }
-    if (is.null(coord))
-      stop(sprintf("no coordinate found for dimension '%s'", d))
-
-    if (length(val) == 2L && is_orderable(val)) {
-      all_vals <- coord_values(coord)
-      lo <- min(val)
-      hi <- max(val)
-      mask <- all_vals >= lo & all_vals <= hi
-      int_sels[[d]] <- which(mask)
-    } else if (length(val) == 1L) {
-      int_sels[[d]] <- coord_lookup(coord, val)
-    } else {
-      int_sels[[d]] <- coord_lookup(coord, val)
-    }
-  }
-
+  int_sels <- sel_positions(.data@coords, selections)
   do.call(isel, c(list(.data), int_sels))
 }

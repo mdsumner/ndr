@@ -8,13 +8,13 @@
 \alias{nd_max}
 \title{Reductions along named dimensions}
 \usage{
-nd_mean(x, ...)
+nd_mean(x, dims, na.rm = FALSE)
 
-nd_sum(x, ...)
+nd_sum(x, dims, na.rm = FALSE)
 
-nd_min(x, ...)
+nd_min(x, dims, na.rm = FALSE)
 
-nd_max(x, ...)
+nd_max(x, dims, na.rm = FALSE)
 }
 \arguments{
 \item{x}{A Variable or DataArray}

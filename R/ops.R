@@ -55,12 +55,10 @@ da_op <- function(e1, e2, op) {
 
   result_var <- broadcast_op(v1, v2, op)
 
-  # merge coords: take from left, fill in from right
+  # align coords: indexes on a shared dim must agree (see ndr.join)
   c1 <- if (S7_inherits(e1, DataArray)) e1@coords else list()
   c2 <- if (S7_inherits(e2, DataArray)) e2@coords else list()
-  merged <- c2
-  for (nm in names(c1)) merged[[nm]] <- c1[[nm]]
-  merged <- Filter(function(c) coord_dim(c) %in% result_var@dims, merged)
+  merged <- align_indexes(c1, c2, result_var@dims)
 
   DataArray(variable = result_var, coords = merged, name = character())
 }
@@ -92,139 +90,139 @@ method(`+`, list(DataArray, class_missing)) <- function(e1, e2) e1
 #   Variable <op> scalar
 #   scalar   <op> Variable
 #
-# Explicit top-level registration — S7's method<- needs this to
+# Explicit top-level registration - S7's method<- needs this to
 # discover and re-register methods at package load time. A local()
 # loop fails because the calling frame is anonymous.
 
 # +
-method(`+`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `+`)
-method(`+`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `+`)
-method(`+`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `+`)
+method(`+`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`+`)
+method(`+`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`+`)
+method(`+`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`+`)
 
 # -
-method(`-`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `-`)
-method(`-`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `-`)
-method(`-`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `-`)
+method(`-`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`-`)
+method(`-`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`-`)
+method(`-`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`-`)
 
 # *
-method(`*`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `*`)
-method(`*`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `*`)
-method(`*`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `*`)
+method(`*`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`*`)
+method(`*`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`*`)
+method(`*`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`*`)
 
 # /
-method(`/`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `/`)
-method(`/`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `/`)
-method(`/`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `/`)
+method(`/`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`/`)
+method(`/`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`/`)
+method(`/`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`/`)
 
 # ^
-method(`^`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `^`)
-method(`^`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `^`)
-method(`^`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `^`)
+method(`^`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`^`)
+method(`^`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`^`)
+method(`^`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`^`)
 
 # %%
-method(`%%`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `%%`)
-method(`%%`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `%%`)
-method(`%%`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `%%`)
+method(`%%`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`%%`)
+method(`%%`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`%%`)
+method(`%%`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`%%`)
 
 # %/%
-method(`%/%`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `%/%`)
-method(`%/%`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `%/%`)
-method(`%/%`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `%/%`)
+method(`%/%`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`%/%`)
+method(`%/%`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`%/%`)
+method(`%/%`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`%/%`)
 
 # ==
-method(`==`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `==`)
-method(`==`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `==`)
-method(`==`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `==`)
+method(`==`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`==`)
+method(`==`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`==`)
+method(`==`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`==`)
 
 # !=
-method(`!=`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `!=`)
-method(`!=`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `!=`)
-method(`!=`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `!=`)
+method(`!=`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`!=`)
+method(`!=`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`!=`)
+method(`!=`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`!=`)
 
 # <
-method(`<`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `<`)
-method(`<`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `<`)
-method(`<`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `<`)
+method(`<`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`<`)
+method(`<`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`<`)
+method(`<`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`<`)
 
 # <=
-method(`<=`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `<=`)
-method(`<=`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `<=`)
-method(`<=`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `<=`)
+method(`<=`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`<=`)
+method(`<=`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`<=`)
+method(`<=`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`<=`)
 
 # >
-method(`>`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `>`)
-method(`>`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `>`)
-method(`>`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `>`)
+method(`>`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`>`)
+method(`>`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`>`)
+method(`>`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`>`)
 
 # >=
-method(`>=`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, `>=`)
-method(`>=`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, `>=`)
-method(`>=`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, `>=`)
+method(`>=`, list(Variable, Variable))  <- function(e1, e2) var_op(e1, e2, base::`>=`)
+method(`>=`, list(Variable, class_any)) <- function(e1, e2) var_op(e1, e2, base::`>=`)
+method(`>=`, list(class_any, Variable)) <- function(e1, e2) var_op(e1, e2, base::`>=`)
 
 
 # --- Binary operators: DataArray ---
 
 # +
-method(`+`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `+`)
-method(`+`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `+`)
-method(`+`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `+`)
+method(`+`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`+`)
+method(`+`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`+`)
+method(`+`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`+`)
 
 # -
-method(`-`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `-`)
-method(`-`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `-`)
-method(`-`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `-`)
+method(`-`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`-`)
+method(`-`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`-`)
+method(`-`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`-`)
 
 # *
-method(`*`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `*`)
-method(`*`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `*`)
-method(`*`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `*`)
+method(`*`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`*`)
+method(`*`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`*`)
+method(`*`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`*`)
 
 # /
-method(`/`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `/`)
-method(`/`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `/`)
-method(`/`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `/`)
+method(`/`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`/`)
+method(`/`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`/`)
+method(`/`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`/`)
 
 # ^
-method(`^`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `^`)
-method(`^`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `^`)
-method(`^`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `^`)
+method(`^`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`^`)
+method(`^`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`^`)
+method(`^`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`^`)
 
 # %%
-method(`%%`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `%%`)
-method(`%%`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `%%`)
-method(`%%`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `%%`)
+method(`%%`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`%%`)
+method(`%%`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`%%`)
+method(`%%`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`%%`)
 
 # %/%
-method(`%/%`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `%/%`)
-method(`%/%`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `%/%`)
-method(`%/%`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `%/%`)
+method(`%/%`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`%/%`)
+method(`%/%`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`%/%`)
+method(`%/%`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`%/%`)
 
 # ==
-method(`==`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `==`)
-method(`==`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `==`)
-method(`==`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `==`)
+method(`==`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`==`)
+method(`==`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`==`)
+method(`==`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`==`)
 
 # !=
-method(`!=`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `!=`)
-method(`!=`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `!=`)
-method(`!=`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `!=`)
+method(`!=`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`!=`)
+method(`!=`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`!=`)
+method(`!=`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`!=`)
 
 # <
-method(`<`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `<`)
-method(`<`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `<`)
-method(`<`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `<`)
+method(`<`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`<`)
+method(`<`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`<`)
+method(`<`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`<`)
 
 # <=
-method(`<=`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `<=`)
-method(`<=`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `<=`)
-method(`<=`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `<=`)
+method(`<=`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`<=`)
+method(`<=`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`<=`)
+method(`<=`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`<=`)
 
 # >
-method(`>`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `>`)
-method(`>`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `>`)
-method(`>`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `>`)
+method(`>`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`>`)
+method(`>`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`>`)
+method(`>`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`>`)
 
 # >=
-method(`>=`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, `>=`)
-method(`>=`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, `>=`)
-method(`>=`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, `>=`)
+method(`>=`, list(DataArray, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`>=`)
+method(`>=`, list(DataArray, class_any)) <- function(e1, e2) da_op(e1, e2, base::`>=`)
+method(`>=`, list(class_any, DataArray)) <- function(e1, e2) da_op(e1, e2, base::`>=`)

@@ -256,10 +256,17 @@ as.data.frame(da)
 
 ## Scope
 
-This is the foundation layer: named-dimension arrays with correct
-broadcasting, coordinate-based indexing, and reductions. No file
-backends, no lazy evaluation, no chunked compute. Those come later as
-separate packages that build on this.
+This is the foundation layer: named-dimension arrays with correct broadcasting,
+coordinate-based indexing, and reductions. Reading and laziness come from
+other packages:
+
+- [altarr](https://github.com/hypertidy/altarr): a `Variable`'s data can be a
+  lazy chunked altarr array, kept lazy through `isel()`, `sel()` and
+  reductions (see `?lazy-data`).
+- [GDAL7](https://github.com/rgdal-dev/GDAL7): `open_dataset()` reads through
+  GDAL's multidimensional API, using `GDAL7::as_altarr()` for lazy data.
+- [zaro](https://github.com/hypertidy/zaro): `zaro_array()` gives an altarr
+  array for a Zarr store without GDAL, which a `Variable` can hold directly.
 
 ## Code of Conduct
 

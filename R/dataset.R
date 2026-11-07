@@ -83,14 +83,18 @@ Dataset <- new_class("Dataset",
     }
     # check coords match dim sizes
     for (nm in names(self@coords)) {
-      coord <- self@coords[[nm]]
-      cdim <- coord_dim(coord)
-      clen <- coord_length(coord)
-      if (cdim %in% names(dim_sizes) && dim_sizes[[cdim]] != clen) {
-        return(sprintf(
-          "coordinate '%s' has length %d but dim '%s' has size %d in data",
-          nm, clen, cdim, dim_sizes[[cdim]]
-        ))
+      ix <- self@coords[[nm]]
+      if (!S7_inherits(ix, Index)) {
+        return(sprintf("coordinate '%s' is not an Index", nm))
+      }
+      isz <- index_sizes(ix)
+      for (d in names(isz)) {
+        if (d %in% names(dim_sizes) && dim_sizes[[d]] != isz[[d]]) {
+          return(sprintf(
+            "coordinate '%s' has length %d but dim '%s' has size %d in data",
+            nm, isz[[d]], d, dim_sizes[[d]]
+          ))
+        }
       }
     }
     NULL
@@ -122,7 +126,7 @@ extract_dataarray <- function(ds, var_name) {
   if (var_name %in% names(ds@data_vars)) {
     v <- ds@data_vars[[var_name]]
     vdims <- v@dims
-    relevant_coords <- Filter(function(c) coord_dim(c) %in% vdims, ds@coords)
+    relevant_coords <- indexes_for_dims(ds@coords, vdims)
     return(DataArray(variable = v, coords = relevant_coords, name = var_name))
   }
 
@@ -130,7 +134,7 @@ extract_dataarray <- function(ds, var_name) {
   be <- ds@.backend
   if (!is.null(be) && var_name %in% names(be$schemas)) {
     v <- backend_lazy_var(be, var_name)
-    relevant_coords <- Filter(function(c) coord_dim(c) %in% v@dims, ds@coords)
+    relevant_coords <- indexes_for_dims(ds@coords, v@dims)
     return(DataArray(variable = v, coords = relevant_coords, name = var_name))
   }
 

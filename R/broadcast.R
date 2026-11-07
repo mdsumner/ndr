@@ -35,7 +35,7 @@ broadcast_shape <- function(a, b) {
     if (in_a && in_b) {
       if (sa[d] != sb[d]) {
         stop(sprintf(
-          "dimension '%s' has size %d in left operand and %d in right — cannot broadcast",
+          "dimension '%s' has size %d in left operand and %d in right - cannot broadcast",
           d, sa[d], sb[d]
         ))
       }
@@ -66,7 +66,7 @@ align_data <- function(v, target_dims) {
   arr <- var_values(v)
 
   if (length(dv) == 0L) {
-    # scalar — return as-is if target is also scalar, else expand
+    # scalar - return as-is if target is also scalar, else expand
     if (length(target_dims) == 0L) return(arr)
     out <- array(as.vector(arr), dim = rep(1L, length(target_dims)))
     return(out)
@@ -141,7 +141,7 @@ broadcast_op <- function(a, b, op) {
   out_shape <- broadcast_shape(a, b)
   out_dims <- names(out_shape)
 
-  # scalar × scalar: no alignment/broadcasting needed
+  # scalar x scalar: no alignment/broadcasting needed
   if (length(out_dims) == 0L) {
     return(Variable(dims = character(), data = array(op(var_values(a), var_values(b)))))
   }

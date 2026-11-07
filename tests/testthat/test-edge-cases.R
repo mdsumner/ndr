@@ -65,8 +65,9 @@ test_that("ExplicitCoord with Date values", {
   expect_equal(coord_length(ec), 4L)
   # exact match
   expect_equal(coord_lookup(ec, as.Date("2020-01-11")), 2L)
-  # no match returns NA (Date uses match())
-  expect_true(is.na(coord_lookup(ec, as.Date("2020-01-05"))))
+  # no exact match: nearest, as for numeric coords
+  expect_equal(coord_lookup(ec, as.Date("2020-01-05")), 1L)
+  expect_equal(coord_lookup(ec, as.Date("2020-01-07")), 2L)
 })
 
 test_that("ExplicitCoord with character values", {
