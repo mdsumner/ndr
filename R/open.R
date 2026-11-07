@@ -1,12 +1,21 @@
 #' Open a dataset from a file or URL
 #'
-#' Read a multidimensional data source into an ndr Dataset. Currently supports
-#' any source that GDAL's multidim API can read: NetCDF, HDF5, Zarr v2/v3,
-#' kerchunk-parquet virtual stores, and VRT multidim. Works with local paths,
-#' `/vsicurl/`, `/vsis3/`, and other GDAL virtual filesystems.
+#' Read a multidimensional data source into an ndr Dataset, through one of
+#' two engines:
 #'
-#' Requires the GDAL7 package (`remotes::install_github("rgdal-dev/GDAL7")`,
-#' GDAL >= 3.10) and, for reading data, the altarr package
+#' * `"gdal"`: any source GDAL's multidim API can read (NetCDF, HDF5, Zarr
+#'   v2/v3, kerchunk-parquet virtual stores, VRT multidim), from local paths,
+#'   `/vsicurl/`, `/vsis3/` and other GDAL virtual filesystems. Needs the
+#'   GDAL7 package (`remotes::install_github("rgdal-dev/GDAL7")`,
+#'   GDAL >= 3.10).
+#' * `"zaro"`: Zarr V2/V3 and virtual Zarr (kerchunk, VirtualiZarr Parquet,
+#'   mdim-refs) read by the zaro package
+#'   (`remotes::install_github("hypertidy/zaro")`), with no GDAL in the
+#'   path. Takes anything [zaro::zaro()] opens, such as `s3://` and `gs://`
+#'   URIs, `virtualizarr://` and `mdimrefs://` sources, or a store or
+#'   [zaro::zaro_dataset()] object.
+#'
+#' Reading data needs the altarr package
 #' (`remotes::install_github("hypertidy/altarr")`).
 #'
 #' @param dsn Data source name. A file path, URL, or GDAL connection string
@@ -14,7 +23,11 @@
 #' @param vars Character vector of variable names to include. Default `NULL`
 #'   includes all data variables. Use `character()` for schema + coords only.
 #'   All variables are loaded lazily on first access via `$`.
-#' @param ... Reserved for future use.
+#' @param ... Passed to [zaro::zaro()] for the `"zaro"` engine (e.g.
+#'   `anonymous = TRUE`, `region =`); otherwise unused.
+#' @param engine `"gdal"` or `"zaro"`. The default picks `"zaro"` for zaro
+#'   objects and for `s3://`, `gs://`, `virtualizarr://`, `mdimrefs://` and
+#'   `reference+json://`/`reference+parquet://` sources, else `"gdal"`.
 #'
 #' @return A [Dataset] with coordinates, global attributes, and lazy data
 #'   variables whose values are read only when used.
@@ -51,6 +64,14 @@
 #' their CF units (e.g. "days since 1800-01-01") to R Date or POSIXct values
 #' using [cf_decode_time()].
 #'
+#' ## The zaro engine
+#'
+#' Consolidated metadata is one request for the whole store. Data
+#' variables are CF-decoded as they are read: fill and missing values read
+#' as `NA`, and `scale_factor`/`add_offset` are applied. Those attributes
+#' move from the Variable's `attrs` to its `encoding`. Arrays without
+#' dimension names get names from zaro (see [zaro::zaro_dataset()]).
+#'
 #' ## Dimension ordering
 #'
 #' Arrays are stored in R's column-major (Fortran) order, matching GDAL7's `read_mdarray()`
@@ -80,9 +101,25 @@
 #' }
 #'
 #' @export
-open_dataset <- function(dsn, vars = NULL, ...) {
+open_dataset <- function(dsn, vars = NULL, ..., engine = NULL) {
+  if (is.null(engine)) engine <- guess_engine(dsn)
+  engine <- match.arg(engine, c("gdal", "zaro"))
+  if (engine == "zaro") {
+    check_zaro()
+    return(open_dataset_zaro(dsn, vars = vars, ...))
+  }
   check_gdal7()
   open_dataset_gdal(dsn, vars = vars, ...)
+}
+
+
+#' Which engine reads this source by default
+#' @keywords internal
+#' @noRd
+guess_engine <- function(dsn) {
+  if (!is.character(dsn)) return("zaro")
+  zaro_schemes <- "^(s3|gs|virtualizarr|mdimrefs|reference\\+json|reference\\+parquet)://"
+  if (grepl(zaro_schemes, dsn)) "zaro" else "gdal"
 }
 
 
@@ -137,24 +174,7 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
       }
     }
 
-    if (!is.null(time_units)) {
-      vals <- tryCatch(
-        cf_decode_time(vals, time_units, arr_attrs[["calendar"]]),
-        error = function(e) vals  # fall back to raw numeric
-      )
-    }
-
-    # Choose coord type
-    if (is.numeric(vals) && length(vals) >= 2L && is_regular(vals)) {
-      coords[[nm]] <- ImplicitCoord(
-        dimension = nm,
-        n         = length(vals),
-        offset    = vals[1L],
-        step      = regular_step(vals)
-      )
-    } else {
-      coords[[nm]] <- ExplicitCoord(dimension = nm, values = vals)
-    }
+    coords[[nm]] <- make_coord(nm, vals, time_units, arr_attrs[["calendar"]])
   }
 
   # --- Phase 2b: a georeferenced x/y pair becomes one AffineIndex ---
@@ -164,22 +184,7 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
   coords <- affine_coords_from_arrays(coords, arrays[data_var_names])
 
   # --- Phase 3: determine scope ---
-  # vars = NULL       -> all data vars (lazy)
-  # vars = "sst"      -> only sst (lazy)
-  # vars = character() -> none (schema + coords only)
-  if (!is.null(vars) && length(vars) > 0L) {
-    missing <- setdiff(vars, data_var_names)
-    if (length(missing) > 0L) {
-      stop(sprintf(
-        "requested variable(s) not found: %s\navailable: %s",
-        paste(missing, collapse = ", "),
-        paste(data_var_names, collapse = ", ")
-      ))
-    }
-    data_var_names <- vars
-  } else if (!is.null(vars) && length(vars) == 0L) {
-    data_var_names <- character()
-  }
+  data_var_names <- scope_vars(vars, data_var_names)
 
   # --- Phase 4: build schemas for lazy variables ---
   schemas <- list()
@@ -223,6 +228,121 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
 }
 
 
+#' @keywords internal
+#' @noRd
+open_dataset_zaro <- function(dsn, vars = NULL, ...) {
+  zd <- if (inherits(dsn, "zaro_dataset")) {
+    dsn
+  } else {
+    zaro::zaro_dataset(dsn, verbose = FALSE, ...)
+  }
+
+  # --- classify, by the same rule as the GDAL engine ---
+  coord_names <- character()
+  data_var_names <- character()
+  for (nm in names(zd$arrays)) {
+    dims <- zd$dims[[nm]]
+    if (length(dims) == 1L && dims == nm) {
+      coord_names <- c(coord_names, nm)
+    } else if (length(dims) > 1L &&
+               grepl("^(u?int|float|bool)", zd$arrays[[nm]]@data_type)) {
+      data_var_names <- c(data_var_names, nm)
+    }
+  }
+
+  # --- coordinates (always read; small) ---
+  coords <- list()
+  for (nm in coord_names) {
+    vals <- as.vector(zaro::zaro_read(zd$store, nm, meta = zd$arrays[[nm]],
+                                      verbose = FALSE))
+    a <- zd$arrays[[nm]]@attributes
+    u <- a[["units"]]
+    time_units <- if (is.character(u) && length(u) == 1L &&
+                      grepl("since", u, fixed = TRUE)) u else NULL
+    coords[[nm]] <- make_coord(nm, vals, time_units, a[["calendar"]])
+  }
+
+  data_var_names <- scope_vars(vars, data_var_names)
+
+  # --- schemas: CF packing attributes are encoding, data is decoded ---
+  enc_keys <- c("scale_factor", "add_offset", "_FillValue", "missing_value")
+  schemas <- list()
+  for (nm in data_var_names) {
+    a <- zd$arrays[[nm]]@attributes
+    a[["_ARRAY_DIMENSIONS"]] <- NULL
+    schemas[[nm]] <- list(
+      dim_names = zd$dims[[nm]],
+      dim_sizes = unname(zd$shape[[nm]]),
+      attrs     = a[setdiff(names(a), enc_keys)],
+      encoding  = a[intersect(names(a), enc_keys)]
+    )
+  }
+
+  backend <- NULL
+  if (length(schemas) > 0L) {
+    backend <- list(
+      engine  = "zaro",
+      dsn     = zd,
+      schemas = schemas,
+      cache   = new.env(parent = emptyenv())
+    )
+  }
+
+  Dataset(
+    data_vars = list(),
+    coords    = coords,
+    attrs     = zd$attributes,
+    .backend  = backend
+  )
+}
+
+
+#' A coordinate from its values: regular numeric -> ImplicitCoord
+#'
+#' CF time units (`"<unit> since <origin>"`) decode the values first.
+#' @keywords internal
+#' @noRd
+make_coord <- function(nm, vals, time_units = NULL, calendar = NULL) {
+  if (!is.null(time_units)) {
+    vals <- tryCatch(
+      cf_decode_time(vals, time_units, calendar),
+      error = function(e) vals  # fall back to raw numeric
+    )
+  }
+  if (is.numeric(vals) && length(vals) >= 2L && is_regular(vals)) {
+    ImplicitCoord(
+      dimension = nm,
+      n         = length(vals),
+      offset    = vals[1L],
+      step      = regular_step(vals)
+    )
+  } else {
+    ExplicitCoord(dimension = nm, values = vals)
+  }
+}
+
+
+#' Which data variables to expose
+#'
+#' `vars = NULL` all (lazy), `vars = "sst"` only those, `vars = character()`
+#' none (schema + coords only).
+#' @keywords internal
+#' @noRd
+scope_vars <- function(vars, data_var_names) {
+  if (is.null(vars)) return(data_var_names)
+  if (length(vars) == 0L) return(character())
+  missing <- setdiff(vars, data_var_names)
+  if (length(missing) > 0L) {
+    stop(sprintf(
+      "requested variable(s) not found: %s\navailable: %s",
+      paste(missing, collapse = ", "),
+      paste(data_var_names, collapse = ", ")
+    ))
+  }
+  vars
+}
+
+
 #' A lazy Variable for a backend variable, built once and cached
 #'
 #' Only the array's metadata is read here; values are read by the altarr
@@ -235,10 +355,16 @@ backend_lazy_var <- function(be, var_name) {
   }
   check_altarr()
   schema <- be$schemas[[var_name]]
+  data <- if (identical(be$engine, "zaro")) {
+    zaro_lazy_array(be$dsn, var_name)
+  } else {
+    gdal_lazy_array(be$dsn, var_name)
+  }
   v <- Variable(
-    dims  = schema$dim_names,
-    data  = gdal_lazy_array(be$dsn, var_name),
-    attrs = schema$attrs
+    dims     = schema$dim_names,
+    data     = data,
+    attrs    = schema$attrs,
+    encoding = if (is.null(schema$encoding)) list() else schema$encoding
   )
   assign(var_name, v, envir = be$cache)
   v
@@ -318,6 +444,18 @@ check_gdal7 <- function() {
     stop(
       "GDAL7 package is required for open_dataset().\n",
       "Install with: remotes::install_github(\"rgdal-dev/GDAL7\")",
+      call. = FALSE
+    )
+  }
+}
+
+#' @keywords internal
+#' @noRd
+check_zaro <- function() {
+  if (!requireNamespace("zaro", quietly = TRUE)) {
+    stop(
+      "zaro package is required for engine = \"zaro\".\n",
+      "Install with: remotes::install_github(\"hypertidy/zaro\")",
       call. = FALSE
     )
   }

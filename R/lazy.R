@@ -223,6 +223,21 @@ gdal_lazy_array <- function(dsn, var_name) {
   x
 }
 
+#' A lazy array for one zaro dataset variable
+#'
+#' Chunks are the Zarr chunks; zaro applies CF decoding (fill and missing
+#' values to `NA`, then `scale_factor`/`add_offset`) per chunk.
+#' @param zd A `zaro_dataset`.
+#' @param var_name Array name.
+#' @return An altarr array in R (column-major) dimension order.
+#' @keywords internal
+#' @noRd
+zaro_lazy_array <- function(zd, var_name) {
+  x <- zaro::zaro_array(zd, var_name, cf = TRUE, verbose = FALSE)
+  dimnames(x) <- NULL
+  x
+}
+
 #' CF unpacking as a chunk transform, built in a factory for small recipes
 #' @keywords internal
 #' @noRd

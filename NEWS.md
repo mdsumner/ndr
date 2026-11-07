@@ -1,5 +1,18 @@
 # ndr (development)
 
+## zaro engine for `open_dataset()`
+
+* `open_dataset(engine = "zaro")` reads Zarr V2/V3 and virtual Zarr
+  (VirtualiZarr Parquet, kerchunk, mdim-refs) through the zaro package, with
+  no GDAL in the path. It is chosen by default for zaro objects and for
+  `s3://`, `gs://`, `virtualizarr://`, `mdimrefs://` and `reference+*://`
+  sources; `...` goes to `zaro::zaro()` (e.g. `anonymous`, `region`).
+  Variables are lazy altarr arrays, CF-decoded per chunk; the packing
+  attributes are kept in the Variable's `encoding`.
+
+* Coordinate building and `vars =` scoping are shared between the GDAL and
+  zaro engines.
+
 ## Indexes
 
 * Coordinates are now indexes, after xarray's custom Index API. `Index` is

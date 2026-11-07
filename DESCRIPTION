@@ -20,6 +20,7 @@ Suggests:
     altarr,
     CFtime,
     GDAL7,
+    zaro,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
 Collate: 
@@ -43,5 +44,5 @@ Collate:
     'zzz.R'
 URL: https://github.com/mdsumner/ndr
 BugReports: https://github.com/mdsumner/ndr/issues
-Remotes: rgdal-dev/GDAL7, hypertidy/altarr
+Remotes: rgdal-dev/GDAL7, hypertidy/altarr, hypertidy/zaro
 Config/roxygen2/version: 8.1.0
