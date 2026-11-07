@@ -65,7 +65,16 @@ test_that("guess_engine picks zaro for zaro schemes and objects", {
   expect_equal(guess_engine("mdimrefs:///x.sqlite"), "zaro")
   expect_equal(guess_engine("/vsicurl/https://x/y.nc"), "gdal")
   expect_equal(guess_engine("file.nc"), "gdal")
+  expect_equal(guess_engine("/data/sst.zarr"), "zaro")
+  expect_equal(guess_engine("https://example.com/store.ZARR/"), "zaro")
+  expect_equal(guess_engine('ZARR:"/vsicurl/https://x/y.zarr"'), "gdal")
+  expect_equal(guess_engine("/vsis3/bucket/y.zarr"), "gdal")
   expect_equal(guess_engine(structure(list(), class = "zaro_dataset")), "zaro")
+})
+
+test_that("a .zarr path opens with the zaro engine by default", {
+  s <- make_zarr_store()
+  expect_identical(open_dataset(s$path)@.backend$engine, "zaro")
 })
 
 test_that("open_dataset(engine = 'zaro') is lazy with decoded coords", {

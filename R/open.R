@@ -27,7 +27,9 @@
 #'   `anonymous = TRUE`, `region =`); otherwise unused.
 #' @param engine `"gdal"` or `"zaro"`. The default picks `"zaro"` for zaro
 #'   objects and for `s3://`, `gs://`, `virtualizarr://`, `mdimrefs://` and
-#'   `reference+json://`/`reference+parquet://` sources, else `"gdal"`.
+#'   `reference+json://`/`reference+parquet://` sources, and for local or
+#'   `http(s)://` paths ending in `.zarr` when zaro is installed; else
+#'   `"gdal"` (including `ZARR:` connection strings and `/vsi` paths).
 #'
 #' @return A [Dataset] with coordinates, global attributes, and lazy data
 #'   variables whose values are read only when used.
@@ -119,7 +121,13 @@ open_dataset <- function(dsn, vars = NULL, ..., engine = NULL) {
 guess_engine <- function(dsn) {
   if (!is.character(dsn)) return("zaro")
   zaro_schemes <- "^(s3|gs|virtualizarr|mdimrefs|reference\\+json|reference\\+parquet)://"
-  if (grepl(zaro_schemes, dsn)) "zaro" else "gdal"
+  if (grepl(zaro_schemes, dsn)) return("zaro")
+  # a local or http(s) path ending in .zarr: zaro if installed (GDAL can
+  # read these too, so fall back to it); GDAL connection strings and /vsi
+  # paths stay with GDAL
+  is_zarr_path <- grepl("\\.zarr/*$", dsn, ignore.case = TRUE) &&
+    !grepl("^(ZARR:|/vsi)", dsn)
+  if (is_zarr_path && requireNamespace("zaro", quietly = TRUE)) "zaro" else "gdal"
 }
 
 

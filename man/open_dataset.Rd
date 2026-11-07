@@ -19,7 +19,9 @@ All variables are loaded lazily on first access via \code{$}.}
 
 \item{engine}{\code{"gdal"} or \code{"zaro"}. The default picks \code{"zaro"} for zaro
 objects and for \verb{s3://}, \verb{gs://}, \verb{virtualizarr://}, \verb{mdimrefs://} and
-\verb{reference+json://}/\verb{reference+parquet://} sources, else \code{"gdal"}.}
+\verb{reference+json://}/\verb{reference+parquet://} sources, and for local or
+\verb{http(s)://} paths ending in \code{.zarr} when zaro is installed; else
+\code{"gdal"} (including \verb{ZARR:} connection strings and \verb{/vsi} paths).}
 }
 \value{
 A \link{Dataset} with coordinates, global attributes, and lazy data
