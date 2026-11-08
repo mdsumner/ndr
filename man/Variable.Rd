@@ -4,7 +4,13 @@
 \alias{Variable}
 \title{Variable: a named-dimension array}
 \usage{
-Variable(dims = character(0), data = NULL, attrs = list(), encoding = list())
+Variable(
+  dims = character(0),
+  data = NULL,
+  attrs = list(),
+  encoding = list(),
+  source = NULL
+)
 }
 \arguments{
 \item{dims}{Character vector of dimension names.}
@@ -15,6 +21,10 @@ lazy chunked array from the altarr package (see \link{lazy-data}).}
 \item{attrs}{Named list of arbitrary metadata.}
 
 \item{encoding}{Named list of on-disk encoding info (scale_factor, etc.).}
+
+\item{source}{Where lazy data comes from, or \code{NULL}: set by
+\code{\link[=open_dataset]{open_dataset()}} and carried through \code{\link[=isel]{isel()}} and \code{\link[=sel]{sel()}}, so that
+\code{\link[=nd_plan]{nd_plan()}} can say what reading it will cost. Not for setting by hand.}
 }
 \description{
 The fundamental building block. A Variable is an N-dimensional array that

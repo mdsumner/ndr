@@ -782,7 +782,8 @@ backend_lazy_var <- function(be, var_name) {
     dims     = schema$dim_names,
     data     = data,
     attrs    = schema$attrs,
-    encoding = if (is.null(schema$encoding)) list() else schema$encoding
+    encoding = if (is.null(schema$encoding)) list() else schema$encoding,
+    source   = lazy_source(be, var_name, schema, data)
   )
   assign(var_name, v, envir = be$cache)
   v

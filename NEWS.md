@@ -1,5 +1,19 @@
 # ndr (development)
 
+* New `nd_plan()`: what reading lazy data will cost, before reading it
+  (#15). For a Variable or DataArray from `open_dataset()`, after any
+  `sel()`/`isel()`: the selection's size, the source chunks it touches
+  (and how many values decoding them gives), and with the zaro engine the
+  requests, bytes, hosts and transports from `zaro::zaro_plan()`. With the
+  GDAL engine the chunks are counted and the requests not estimated. Above
+  `getOption("ndr.plan_max_chunks", 1e5)` chunks only the counts are
+  given. For a Dataset, one row per variable. A BRAN2023 point time series
+  shows why it helps: 279,429 chunks touched, about 25 billion values
+  decoded for 279,429 wanted; one surface day is 60 requests, 3.5 MB.
+* Lazy Variables record their source (`Variable@source`: engine, dataset,
+  array, chunk shape, selected positions), set by `open_dataset()` and
+  composed by `isel()`/`sel()`; results of arithmetic don't carry it.
+
 * The GDAL engine reads GeoZarr (`spatial:transform`, `proj:code`, ...)
   and CF grid mappings as the zaro engine does, so both engines give the
   same `AffineIndex` (identical transform, CRS and shape on EOPF

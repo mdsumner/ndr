@@ -41,6 +41,7 @@ export(open_dataset)
 export(open_raster)
 export(cf_decode_time)
 export(collect)
+export(nd_plan)
 
 # S3 methods (class names match S7's "pkg::Class" format)
 S3method(dim, "ndr::Variable")
