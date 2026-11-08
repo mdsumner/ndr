@@ -1,5 +1,8 @@
 # ndr (development)
 
+* `byterefs://` sources (zaro's name for byterefs stores, alongside
+  `mdimrefs://`) pick the zaro engine by default.
+
 * `open_dataset()` picks the zaro engine by default for local and
   `http(s)://` paths ending in `.zarr` (when zaro is installed; else GDAL).
   `ZARR:` connection strings and `/vsi` paths still go to GDAL.

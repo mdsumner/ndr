@@ -18,7 +18,7 @@ All variables are loaded lazily on first access via \code{$}.}
 \code{anonymous = TRUE}, \verb{region =}); otherwise unused.}
 
 \item{engine}{\code{"gdal"} or \code{"zaro"}. The default picks \code{"zaro"} for zaro
-objects and for \verb{s3://}, \verb{gs://}, \verb{virtualizarr://}, \verb{mdimrefs://} and
+objects and for \verb{s3://}, \verb{gs://}, \verb{virtualizarr://}, \verb{byterefs://}, \verb{mdimrefs://} and
 \verb{reference+json://}/\verb{reference+parquet://} sources, and for local or
 \verb{http(s)://} paths ending in \code{.zarr} when zaro is installed; else
 \code{"gdal"} (including \verb{ZARR:} connection strings and \verb{/vsi} paths).}
@@ -42,7 +42,7 @@ GDAL >= 3.10).
 mdim-refs) read by the zaro package
 (\code{remotes::install_github("hypertidy/zaro")}), with no GDAL in the
 path. Takes anything \code{\link[zaro:zaro]{zaro::zaro()}} opens, such as \verb{s3://} and \verb{gs://}
-URIs, \verb{virtualizarr://} and \verb{mdimrefs://} sources, or a store or
+URIs, \verb{virtualizarr://} and \verb{byterefs://} (or \verb{mdimrefs://}) sources, or a store or
 \code{\link[zaro:zaro_dataset]{zaro::zaro_dataset()}} object.
 }
 
