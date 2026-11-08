@@ -1,5 +1,18 @@
 # ndr (development)
 
+* The zaro engine builds an `AffineIndex` for georeferenced grids. With
+  GeoZarr attributes (`spatial:transform` in rasterio order,
+  `spatial:dimensions`, `spatial:registration`, CRS from `proj:code` /
+  `proj:wkt2` / `proj:projjson` or the grid mapping) the transform defines
+  the grid and the x/y coordinate arrays are not read: an EOPF Sentinel-2
+  group opens with one request (2.8 s, was 5.9 s), and the transform's
+  pixel centres are identical to the stored coordinates. Otherwise a CF
+  `grid_mapping` with `crs_wkt` and two regular coordinates gives one, as
+  the GDAL engine does from GDAL's CRS.
+
+* The online zaro tests skip without blosc (the public stores use it):
+  under `R CMD check` only declared packages are visible.
+
 * `open_dataset()` gains `group =` to open one group of a nested store,
   such as an EOPF Sentinel-2 product (sharded GeoZarr) whose bands are at
   `measurements/reflectance/r10m`. A group can also be named in the path
