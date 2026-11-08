@@ -1,6 +1,7 @@
 ## shared by test-open-zaro.R and test-open-group.R
 
-## write an uncompressed V2 array (C order) given in R dim order
+## write an uncompressed V2 array (C order) given in R dim order;
+## dtype "<U<n>" writes a character array as UTF-32 (fill = '""')
 write_v2 <- function(path, x, chunk, dims, attrs = NULL, dtype = "<f8",
                      fill = "NaN") {
   dir.create(path, recursive = TRUE, showWarnings = FALSE)
@@ -16,6 +17,7 @@ write_v2 <- function(path, x, chunk, dims, attrs = NULL, dtype = "<f8",
   writeLines(paste0("{", paste(a, collapse = ", "), "}"),
              file.path(path, ".zattrs"))
   is_int <- dtype == "<i2"
+  str_len <- if (startsWith(dtype, "<U")) as.integer(substring(dtype, 3)) else NA
   grid <- lapply(ceiling(d / chunk) - 1L, function(n) seq.int(0L, n))
   cc_all <- as.matrix(expand.grid(grid, KEEP.OUT.ATTRS = FALSE))
   for (r in seq_len(nrow(cc_all))) {
@@ -24,10 +26,17 @@ write_v2 <- function(path, x, chunk, dims, attrs = NULL, dtype = "<f8",
     ext <- pmin(chunk, d - st + 1L)
     region <- do.call(`[`, c(list(x), Map(seq.int, st, length.out = ext),
                              list(drop = FALSE)))
-    padded <- array(if (is_int) -32768L else NaN, chunk)
+    padded <- array(if (!is.na(str_len)) "" else if (is_int) -32768L else NaN,
+                    chunk)
     padded <- do.call(`[<-`, c(list(padded), lapply(ext, seq_len),
                                list(value = region)))
-    bytes <- if (is_int) {
+    bytes <- if (!is.na(str_len)) {
+      cps <- unlist(lapply(as.vector(padded), function(s) {
+        cp <- utf8ToInt(enc2utf8(s))
+        c(cp, integer(str_len - length(cp)))
+      }))
+      writeBin(as.integer(cps), raw(), size = 4L, endian = "little")
+    } else if (is_int) {
       writeBin(as.integer(padded), raw(), size = 2L, endian = "little")
     } else {
       writeBin(as.double(padded), raw(), size = 8L, endian = "little")

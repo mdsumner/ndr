@@ -1,5 +1,18 @@
 # ndr (development)
 
+* `open_dataset()` opens 1D arrays along another dimension as data
+  variables (they were skipped): EOPF Sentinel-2 L2A `conditions/geometry`
+  now has `mean_sun_angles` on `angle`. CF grid-mapping variables (named
+  by a `grid_mapping` attribute, simple or extended form) are still left
+  out.
+* String variables, with the zaro engine and zaro >= 0.0.1.9034
+  (hypertidy/zaro#27): string coordinates load at open (EOPF `angle`,
+  `band`, `detector`), and string data variables are read at open when
+  they have at most `getOption("ndr.eager_string_max", 1e6)` elements
+  (larger ones are skipped with a message). The GDAL engine can't read
+  string arrays yet (GDAL7 reads numeric arrays): they are skipped with a
+  message instead of failing the open.
+
 * The zaro engine reads all coordinate arrays in one pooled fetch
   (`zaro::zaro_read_arrays()`, hypertidy/zaro#21), so opening costs about one
   round trip, not one per coordinate, on HTTP stores. With an older zaro it
