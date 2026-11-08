@@ -11,7 +11,7 @@ dimension name, not position.
 
 ``` r
 ## install.packages("remotes")
-remotes::install_github("mdsumner/ndr")
+remotes::install_github("hypertidy/ndr")
 ```
 
 ## Variables
