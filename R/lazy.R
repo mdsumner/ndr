@@ -203,14 +203,20 @@ view_subs <- function(idx, keep, pos) {
 #' @return An altarr array in R (column-major) dimension order.
 #' @keywords internal
 #' @noRd
-gdal_lazy_array <- function(dsn, var_name) {
+gdal_lazy_array <- function(dsn, var_name, group = NULL) {
+  if (is.null(group)) group <- ""
   ds <- GDAL7::gdal_open(dsn, multidim = TRUE)
   on.exit(GDAL7::gdal_close(ds), add = TRUE)
-  arr <- GDAL7::open_mdarray(GDAL7::get_root_group(ds), var_name)
+  grp <- GDAL7::get_root_group(ds)
+  for (g in strsplit(group, "/", fixed = TRUE)[[1L]]) {
+    grp <- GDAL7::open_group(grp, g)
+  }
+  arr <- GDAL7::open_mdarray(grp, var_name)
   scale <- arr@scale
   offset <- arr@offset
 
-  x <- GDAL7::as_altarr(dsn, array = var_name)
+  full <- if (nzchar(group)) paste0("/", group, "/", var_name) else var_name
+  x <- GDAL7::as_altarr(dsn, array = full)
   # Variable@dims carries the names; keep the data a plain array
   dimnames(x) <- NULL
 

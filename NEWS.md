@@ -1,5 +1,15 @@
 # ndr (development)
 
+* `open_dataset()` gains `group =` to open one group of a nested store,
+  such as an EOPF Sentinel-2 product (sharded GeoZarr) whose bands are at
+  `measurements/reflectance/r10m`. A group can also be named in the path
+  after `.zarr/` (`".../product.zarr/measurements/reflectance/r10m"`),
+  which is split into the store and the group so that the store's root
+  consolidated metadata is used. The group's attributes become the
+  Dataset's. Both engines: the zaro engine needs zaro with
+  `zaro_dataset(group =)` (hypertidy/zaro#20); the GDAL engine walks
+  GDAL7's groups.
+
 * `byterefs://` sources (zaro's name for byterefs stores, alongside
   `mdimrefs://`) pick the zaro engine by default.
 

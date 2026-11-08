@@ -20,6 +20,9 @@
 #'
 #' @param dsn Data source name. A file path, URL, or GDAL connection string
 #'   (e.g. `'ZARR:"/vsicurl/https://example.com/store.parq"'`).
+#' @param group Path of the group to open in a nested store, e.g.
+#'   `"measurements/reflectance/r10m"`. Default `NULL`, the root group (or
+#'   the group named in `dsn` after `.zarr/`, see Details).
 #' @param vars Character vector of variable names to include. Default `NULL`
 #'   includes all data variables. Use `character()` for schema + coords only.
 #'   All variables are loaded lazily on first access via `$`.
@@ -28,7 +31,8 @@
 #' @param engine `"gdal"` or `"zaro"`. The default picks `"zaro"` for zaro
 #'   objects and for `s3://`, `gs://`, `virtualizarr://`, `byterefs://`, `mdimrefs://` and
 #'   `reference+json://`/`reference+parquet://` sources, and for local or
-#'   `http(s)://` paths ending in `.zarr` when zaro is installed; else
+#'   `http(s)://` paths ending in `.zarr` (or with a group after it) when zaro
+#'   is installed; else
 #'   `"gdal"` (including `ZARR:` connection strings and `/vsi` paths).
 #'
 #' @return A [Dataset] with coordinates, global attributes, and lazy data
@@ -74,6 +78,16 @@
 #' move from the Variable's `attrs` to its `encoding`. Arrays without
 #' dimension names get names from zaro (see [zaro::zaro_dataset()]).
 #'
+#' ## Groups
+#'
+#' A nested store (e.g. an EOPF Sentinel-2 product or other GeoZarr) keeps
+#' its arrays in groups below the root. Open one group with `group =`, or
+#' name it in the path: `"https://host/product.zarr/measurements/r10m"` is
+#' read as `dsn = "https://host/product.zarr"`,
+#' `group = "measurements/r10m"`, so the store's consolidated metadata (at
+#' its root) is used. The group's attributes become the Dataset's. List a
+#' store's groups with [zaro::zaro_groups()].
+#'
 #' ## Dimension ordering
 #'
 #' Arrays are stored in R's column-major (Fortran) order, matching GDAL7's `read_mdarray()`
@@ -100,18 +114,60 @@
 #' dsn <- 'ZARR:"/vsicurl/https://example.com/store.parq"'
 #' ds <- open_dataset(dsn, vars = "temp")
 #' ds$temp  # a lazy DataArray: nothing read yet
+#'
+#' # One group of a nested (sharded GeoZarr) store
+#' eopf <- paste0("https://s3.explorer.eopf.copernicus.eu/esa-zarr-sentinel-explorer-fra/",
+#'                "tests-output/sentinel-2-l2a/",
+#'                "S2C_MSIL2A_20260120T084301_N0511_R064_T36UXA_20260120T122910.zarr")
+#' r10m <- open_dataset(eopf, group = "measurements/reflectance/r10m")
+#' r10m$b04 |> isel(x = 5001:6000, y = 5001:6000) |> collect()
 #' }
 #'
 #' @export
-open_dataset <- function(dsn, vars = NULL, ..., engine = NULL) {
+open_dataset <- function(dsn, vars = NULL, ..., group = NULL, engine = NULL) {
+  if (is.null(group)) {
+    sp <- split_zarr_group(dsn)
+    dsn <- sp$dsn
+    group <- sp$group
+  }
+  group <- clean_group(group)
   if (is.null(engine)) engine <- guess_engine(dsn)
   engine <- match.arg(engine, c("gdal", "zaro"))
   if (engine == "zaro") {
     check_zaro()
-    return(open_dataset_zaro(dsn, vars = vars, ...))
+    return(open_dataset_zaro(dsn, vars = vars, group = group, ...))
   }
   check_gdal7()
-  open_dataset_gdal(dsn, vars = vars, ...)
+  open_dataset_gdal(dsn, vars = vars, group = group, ...)
+}
+
+
+#' A group named after `.zarr/` in a path: split it off
+#'
+#' `"https://h/p.zarr/a/b"` -> dsn `"https://h/p.zarr"`, group `"a/b"`.
+#' GDAL connection strings and `/vsi` paths are left alone.
+#' @keywords internal
+#' @noRd
+split_zarr_group <- function(dsn) {
+  out <- list(dsn = dsn, group = "")
+  if (!is.character(dsn) || length(dsn) != 1L || grepl("^(ZARR:|/vsi)", dsn)) {
+    return(out)
+  }
+  m <- regmatches(dsn, regexec("^(.*?\\.zarr)/+(.*?)/*$", dsn, ignore.case = TRUE))[[1L]]
+  if (length(m) == 3L && nzchar(m[3L])) out <- list(dsn = m[2L], group = m[3L])
+  out
+}
+
+#' A group path without leading/trailing slashes ("" for the root)
+#' @keywords internal
+#' @noRd
+clean_group <- function(group) {
+  if (is.null(group)) return("")
+  if (!is.character(group) || length(group) != 1L || is.na(group)) {
+    stop("'group' must be a single path", call. = FALSE)
+  }
+  group <- gsub("^/+|/+$", "", group)
+  if (group == ".") "" else group
 }
 
 
@@ -133,13 +189,20 @@ guess_engine <- function(dsn) {
 
 #' @keywords internal
 #' @noRd
-open_dataset_gdal <- function(dsn, vars = NULL, ...) {
+open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
 
   ds <- GDAL7::gdal_open(dsn, multidim = TRUE)
   on.exit(GDAL7::gdal_close(ds), add = TRUE)
   root <- GDAL7::get_root_group(ds)
   if (is.null(root)) {
     stop(sprintf("'%s' is not a multidimensional source", dsn), call. = FALSE)
+  }
+  for (g in strsplit(group, "/", fixed = TRUE)[[1L]]) {
+    sub_group <- if (g %in% root@group_names) GDAL7::open_group(root, g)
+    if (is.null(sub_group)) {
+      stop(sprintf("group '%s' is not in '%s'", group, dsn), call. = FALSE)
+    }
+    root <- sub_group
   }
 
   array_names <- root@mdarray_names
@@ -222,6 +285,7 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
   if (length(schemas) > 0L) {
     backend <- list(
       dsn     = dsn,
+      group   = group,
       schemas = schemas,
       cache   = new.env(parent = emptyenv())
     )
@@ -238,9 +302,19 @@ open_dataset_gdal <- function(dsn, vars = NULL, ...) {
 
 #' @keywords internal
 #' @noRd
-open_dataset_zaro <- function(dsn, vars = NULL, ...) {
+open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
   zd <- if (inherits(dsn, "zaro_dataset")) {
+    if (nzchar(group)) {
+      stop("'group' can't be given with a zaro_dataset; ",
+           "use zaro::zaro_dataset(group = )", call. = FALSE)
+    }
     dsn
+  } else if (nzchar(group)) {
+    if (!"group" %in% names(formals(zaro::zaro_dataset))) {
+      stop("opening a group needs a newer zaro: ",
+           "remotes::install_github(\"hypertidy/zaro\")", call. = FALSE)
+    }
+    zaro::zaro_dataset(dsn, group = group, verbose = FALSE, ...)
   } else {
     zaro::zaro_dataset(dsn, verbose = FALSE, ...)
   }
@@ -261,7 +335,8 @@ open_dataset_zaro <- function(dsn, vars = NULL, ...) {
   # --- coordinates (always read; small) ---
   coords <- list()
   for (nm in coord_names) {
-    vals <- as.vector(zaro::zaro_read(zd$store, nm, meta = zd$arrays[[nm]],
+    path <- if (is.null(zd$paths)) nm else zd$paths[[nm]]
+    vals <- as.vector(zaro::zaro_read(zd$store, path, meta = zd$arrays[[nm]],
                                       verbose = FALSE))
     a <- zd$arrays[[nm]]@attributes
     u <- a[["units"]]
@@ -366,7 +441,7 @@ backend_lazy_var <- function(be, var_name) {
   data <- if (identical(be$engine, "zaro")) {
     zaro_lazy_array(be$dsn, var_name)
   } else {
-    gdal_lazy_array(be$dsn, var_name)
+    gdal_lazy_array(be$dsn, var_name, be$group)
   }
   v <- Variable(
     dims     = schema$dim_names,

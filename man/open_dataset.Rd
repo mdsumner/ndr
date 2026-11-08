@@ -4,7 +4,7 @@
 \alias{open_dataset}
 \title{Open a dataset from a file or URL}
 \usage{
-open_dataset(dsn, vars = NULL, ..., engine = NULL)
+open_dataset(dsn, vars = NULL, ..., group = NULL, engine = NULL)
 }
 \arguments{
 \item{dsn}{Data source name. A file path, URL, or GDAL connection string
@@ -17,10 +17,15 @@ All variables are loaded lazily on first access via \code{$}.}
 \item{...}{Passed to \code{\link[zaro:zaro]{zaro::zaro()}} for the \code{"zaro"} engine (e.g.
 \code{anonymous = TRUE}, \verb{region =}); otherwise unused.}
 
+\item{group}{Path of the group to open in a nested store, e.g.
+\code{"measurements/reflectance/r10m"}. Default \code{NULL}, the root group (or
+the group named in \code{dsn} after \verb{.zarr/}, see Details).}
+
 \item{engine}{\code{"gdal"} or \code{"zaro"}. The default picks \code{"zaro"} for zaro
 objects and for \verb{s3://}, \verb{gs://}, \verb{virtualizarr://}, \verb{byterefs://}, \verb{mdimrefs://} and
 \verb{reference+json://}/\verb{reference+parquet://} sources, and for local or
-\verb{http(s)://} paths ending in \code{.zarr} when zaro is installed; else
+\verb{http(s)://} paths ending in \code{.zarr} (or with a group after it) when zaro
+is installed; else
 \code{"gdal"} (including \verb{ZARR:} connection strings and \verb{/vsi} paths).}
 }
 \value{
@@ -91,6 +96,17 @@ move from the Variable's \code{attrs} to its \code{encoding}. Arrays without
 dimension names get names from zaro (see \code{\link[zaro:zaro_dataset]{zaro::zaro_dataset()}}).
 }
 
+\subsection{Groups}{
+
+A nested store (e.g. an EOPF Sentinel-2 product or other GeoZarr) keeps
+its arrays in groups below the root. Open one group with \verb{group =}, or
+name it in the path: \code{"https://host/product.zarr/measurements/r10m"} is
+read as \code{dsn = "https://host/product.zarr"},
+\code{group = "measurements/r10m"}, so the store's consolidated metadata (at
+its root) is used. The group's attributes become the Dataset's. List a
+store's groups with \code{\link[zaro:zaro_groups]{zaro::zaro_groups()}}.
+}
+
 \subsection{Dimension ordering}{
 
 Arrays are stored in R's column-major (Fortran) order, matching GDAL7's \code{read_mdarray()}
@@ -118,6 +134,13 @@ ds <- open_dataset("sst.mnmean.nc", vars = "sst")
 dsn <- 'ZARR:"/vsicurl/https://example.com/store.parq"'
 ds <- open_dataset(dsn, vars = "temp")
 ds$temp  # a lazy DataArray: nothing read yet
+
+# One group of a nested (sharded GeoZarr) store
+eopf <- paste0("https://s3.explorer.eopf.copernicus.eu/esa-zarr-sentinel-explorer-fra/",
+               "tests-output/sentinel-2-l2a/",
+               "S2C_MSIL2A_20260120T084301_N0511_R064_T36UXA_20260120T122910.zarr")
+r10m <- open_dataset(eopf, group = "measurements/reflectance/r10m")
+r10m$b04 |> isel(x = 5001:6000, y = 5001:6000) |> collect()
 }
 
 }
