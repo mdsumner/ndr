@@ -1,6 +1,6 @@
 Package: ndr
 Title: Named-Dimension Arrays with Coordinate-Based Indexing
-Version: 0.1.0.9011
+Version: 0.1.0.9012
 Authors@R: 
     person("Michael", "Sumner", , "mdsumner@gmail.com", role = c("aut", "cre"))
 Description: Provides Variable, DataArray, and Dataset classes for
@@ -19,8 +19,10 @@ Imports:
 Suggests:
     altarr,
     CFtime,
+    DBI,
     GDAL7,
     jsonlite,
+    RSQLite,
     zaro (>= 0.0.1.9035),
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

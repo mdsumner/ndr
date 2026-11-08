@@ -106,6 +106,15 @@ move from the Variable's \code{attrs} to its \code{encoding}. Arrays without
 dimension names get names from zaro (see \code{\link[zaro:zaro_dataset]{zaro::zaro_dataset()}}).
 }
 
+\subsection{Arrays a store can't decode}{
+
+A byterefs store (\verb{byterefs://}) names the arrays whose codecs zaro does
+not know, rather than let them be misread (byterefs decision 0007). zaro
+warns about them at open; the Dataset leaves them out of its coordinates
+and variables, lists them with the reason when printed, and asking for
+one (\code{ds$v}, \code{vars = "v"}) is an error giving the reason.
+}
+
 \subsection{Georeferenced grids}{
 
 A georeferenced grid becomes one \link{AffineIndex}, by the same rules in both

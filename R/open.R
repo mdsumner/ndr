@@ -88,6 +88,14 @@
 #' move from the Variable's `attrs` to its `encoding`. Arrays without
 #' dimension names get names from zaro (see [zaro::zaro_dataset()]).
 #'
+#' ## Arrays a store can't decode
+#'
+#' A byterefs store (`byterefs://`) names the arrays whose codecs zaro does
+#' not know, rather than let them be misread (byterefs decision 0007). zaro
+#' warns about them at open; the Dataset leaves them out of its coordinates
+#' and variables, lists them with the reason when printed, and asking for
+#' one (`ds$v`, `vars = "v"`) is an error giving the reason.
+#'
 #' ## Georeferenced grids
 #'
 #' A georeferenced grid becomes one [AffineIndex], by the same rules in both
@@ -400,10 +408,14 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
   data_var_names <- character()
   string_names <- character()
   gm_names <- grid_mapping_names(lapply(zd$arrays, function(m) m@attributes))
+  # arrays the store says it can't decode (byterefs decision 0007: an
+  # unknown codec refuses the array); zaro warns about them at open
+  refused <- zaro_refused(zd)
   for (nm in names(zd$arrays)) {
     dims <- zd$dims[[nm]]
     dt <- zd$arrays[[nm]]@data_type
     if (length(dims) == 0L) next  # scalar
+    if (nm %in% names(refused)) next
     if (nm %in% gm_names) next    # a CF grid mapping: CRS, not data
     if (length(dims) == 1L && dims == nm) {
       coord_names <- c(coord_names, nm)
@@ -422,6 +434,11 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
   if (!is.null(affine)) coord_names <- setdiff(coord_names, affine@dims)
 
   # --- scope, and which string variables are small enough to read now ---
+  bad <- intersect(vars, names(refused))
+  if (length(bad)) {
+    stop(sprintf("can't read %s: %s", paste0("'", bad, "'", collapse = ", "),
+                 paste(refused[bad], collapse = "; ")), call. = FALSE)
+  }
   in_scope <- scope_vars(vars, c(data_var_names, string_names))
   data_var_names <- intersect(data_var_names, in_scope)
   string_names <- intersect(string_names, in_scope)
@@ -476,12 +493,17 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
     )
   }
 
+  # refused arrays in scope are listed on the Dataset, with their reasons
+  if (!is.null(vars)) refused <- refused[intersect(names(refused), vars)]
   backend <- NULL
-  if (length(schemas) > 0L) {
+  if (length(schemas) > 0L || length(refused) > 0L) {
     backend <- list(
       engine  = "zaro",
       dsn     = zd,
       schemas = schemas,
+      refused = lapply(stats::setNames(names(refused), names(refused)),
+                       function(nm) list(reason = refused[[nm]],
+                                         dim_names = zd$dims[[nm]])),
       cache   = new.env(parent = emptyenv())
     )
   }
@@ -581,6 +603,22 @@ read_zaro_arrays <- function(zd, names) {
     path <- if (is.null(zd$paths)) nm else zd$paths[[nm]]
     zaro::zaro_read(zd$store, path, meta = zd$arrays[[nm]], verbose = FALSE)
   }), names)
+}
+
+
+#' Arrays of a zaro dataset that its store refuses to decode, with reasons
+#'
+#' A byterefs store lists the arrays whose codec chain zaro doesn't know
+#' (`MdimRefsStore@refused`, byterefs decision 0007); other stores refuse
+#' none.
+#' @return named character: array name -> reason.
+#' @keywords internal
+#' @noRd
+zaro_refused <- function(zd) {
+  st <- zd$store
+  r <- if ("refused" %in% S7::prop_names(st)) st@refused else character()
+  r <- r[names(r) %in% names(zd$arrays)]
+  stats::setNames(as.character(r), names(r))
 }
 
 
