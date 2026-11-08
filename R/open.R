@@ -61,12 +61,12 @@
 #' skipped.
 #'
 #' Numeric and logical data variables are lazy. String data variables can't
-#' be (lazy arrays are numeric), so with the zaro engine they are read at
-#' open when they have at most `getOption("ndr.eager_string_max", 1e6)`
-#' elements, and skipped with a message when larger. The GDAL engine can't
-#' read string arrays yet: they are skipped with a message (string
-#' coordinates too, leaving that dimension without coordinate values); use
-#' `engine = "zaro"` for those.
+#' be (lazy arrays are numeric), so they are read at open when they have at
+#' most `getOption("ndr.eager_string_max", 1e6)` elements, and skipped with
+#' a message when larger. String coordinates are read like any other. The
+#' GDAL engine reads strings with GDAL7 from rgdal-dev/GDAL7#15; with an
+#' older GDAL7 it skips string arrays with a message (string coordinates
+#' too, leaving that dimension without coordinate values).
 #'
 #' ## Coordinate types
 #'
@@ -231,6 +231,7 @@ open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
   # --- Phase 1: classify arrays as coords or data vars ---
   coord_names <- character()
   data_var_names <- character()
+  string_names <- character()
   unreadable <- character()
   arrays <- list()  # open arrays, reused below
 
@@ -242,22 +243,28 @@ open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
 
     ndims <- length(dim_names)
     if (ndims == 0L) next  # skip scalar arrays
-    if (!nzchar(arr@data_type_name)) {
-      # strings and compound types: GDAL7 reads numeric arrays only
-      unreadable <- c(unreadable, nm)
-    } else if (ndims == 1L && dim_names == nm) {
-      coord_names <- c(coord_names, nm)
+    klass <- gdal_value_class(arr)
+    if (klass == "numeric" || (klass == "string" && ndims == 1L && dim_names == nm)) {
+      if (ndims == 1L && dim_names == nm) {
+        coord_names <- c(coord_names, nm)
+      } else {
+        data_var_names <- c(data_var_names, nm)
+      }
+    } else if (klass == "string") {
+      string_names <- c(string_names, nm)
     } else {
-      data_var_names <- c(data_var_names, nm)
+      unreadable <- c(unreadable, nm)
     }
   }
   gm_names <- grid_mapping_names(lapply(arrays, function(a) a@attributes))
   data_var_names <- setdiff(data_var_names, gm_names)
+  string_names <- setdiff(string_names, gm_names)
   unreadable <- setdiff(unreadable, gm_names)
   if (length(unreadable)) {
-    message("ndr: skipping non-numeric array(s) the GDAL engine can't read: ",
+    message("ndr: skipping array(s) the GDAL engine can't read: ",
             paste(unreadable, collapse = ", "),
-            " (engine = \"zaro\" reads string arrays)")
+            if (gdal7_reads_strings()) " (compound values)" else
+              " (strings need a newer GDAL7; engine = \"zaro\" reads them)")
   }
 
   # --- Phase 2: build coordinates (always read) ---
@@ -286,8 +293,22 @@ open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
   # carried together (see ?AffineIndex).
   coords <- affine_coords_from_arrays(coords, arrays[data_var_names])
 
-  # --- Phase 3: determine scope ---
-  data_var_names <- scope_vars(vars, data_var_names)
+  # --- Phase 3: determine scope; small string variables are read now ---
+  in_scope <- scope_vars(vars, c(data_var_names, string_names))
+  data_var_names <- intersect(data_var_names, in_scope)
+  string_names <- eager_string_names(
+    intersect(string_names, in_scope),
+    lapply(arrays[intersect(string_names, in_scope)],
+           function(a) a@dimensions$size))
+  data_vars <- list()
+  for (nm in string_names) {
+    arr <- arrays[[nm]]
+    x <- GDAL7::read_mdarray(arr)       # dim already in R order
+    x <- array(as.vector(x), rev(as.integer(arr@dimensions$size)))
+    a <- arr@attributes
+    data_vars[[nm]] <- Variable(dims = rev(arr@dimensions$name), data = x,
+                                attrs = a)
+  }
 
   # --- Phase 4: build schemas for lazy variables ---
   schemas <- list()
@@ -324,7 +345,7 @@ open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
   }
 
   Dataset(
-    data_vars = list(),
+    data_vars = data_vars,
     coords    = coords,
     attrs     = global_attrs,
     .backend  = backend
@@ -378,14 +399,7 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
   in_scope <- scope_vars(vars, c(data_var_names, string_names))
   data_var_names <- intersect(data_var_names, in_scope)
   string_names <- intersect(string_names, in_scope)
-  eager_max <- getOption("ndr.eager_string_max", 1e6)
-  n_el <- vapply(string_names, function(nm) prod(as.double(zd$shape[[nm]])), 1)
-  if (any(n_el > eager_max)) {
-    message("ndr: skipping string variable(s) larger than ",
-            "getOption(\"ndr.eager_string_max\") = ", format(eager_max), ": ",
-            paste(string_names[n_el > eager_max], collapse = ", "))
-  }
-  string_names <- string_names[n_el <= eager_max]
+  string_names <- eager_string_names(string_names, zd$shape[string_names])
 
   # --- coordinates (always read; small) and small string variables, in
   # one fetch ---
@@ -475,6 +489,44 @@ grid_mapping_names <- function(attr_list) {
   unique(out[nzchar(out)])
 }
 
+
+#' The string variables small enough to read at open
+#'
+#' At most `getOption("ndr.eager_string_max", 1e6)` elements; the rest are
+#' named in a message and left out.
+#' @param nms variable names; `shapes` a list of their sizes, in order.
+#' @keywords internal
+#' @noRd
+eager_string_names <- function(nms, shapes) {
+  if (!length(nms)) return(character())
+  eager_max <- getOption("ndr.eager_string_max", 1e6)
+  n_el <- vapply(shapes, function(s) prod(as.double(s)), 1)
+  if (any(n_el > eager_max)) {
+    message("ndr: skipping string variable(s) larger than ",
+            "getOption(\"ndr.eager_string_max\") = ", format(eager_max), ": ",
+            paste(nms[n_el > eager_max], collapse = ", "))
+  }
+  nms[n_el <= eager_max]
+}
+
+#' What kind of value a GDAL array holds: "numeric", "string" or "compound"
+#'
+#' GDAL7 >= the string-reading version has `data_type_class`; before that a
+#' non-numeric array has an empty `data_type_name` and can't be read.
+#' @keywords internal
+#' @noRd
+gdal_value_class <- function(arr) {
+  if (gdal7_reads_strings()) return(arr@data_type_class)
+  if (nzchar(arr@data_type_name)) "numeric" else "unreadable"
+}
+
+#' Does this GDAL7 read string arrays? (rgdal-dev/GDAL7#15)
+#' @keywords internal
+#' @noRd
+gdal7_reads_strings <- function() {
+  exists("GDAL7_mdarray_read_strings", envir = asNamespace("GDAL7"),
+         inherits = FALSE)
+}
 
 #' Zarr string data types, as zaro names them (older zaro: "string")
 #' @keywords internal

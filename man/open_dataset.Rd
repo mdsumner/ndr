@@ -75,12 +75,12 @@ per band) and bounds arrays (e.g. \code{time_bnds}). Scalar arrays are
 skipped.
 
 Numeric and logical data variables are lazy. String data variables can't
-be (lazy arrays are numeric), so with the zaro engine they are read at
-open when they have at most \code{getOption("ndr.eager_string_max", 1e6)}
-elements, and skipped with a message when larger. The GDAL engine can't
-read string arrays yet: they are skipped with a message (string
-coordinates too, leaving that dimension without coordinate values); use
-\code{engine = "zaro"} for those.
+be (lazy arrays are numeric), so they are read at open when they have at
+most \code{getOption("ndr.eager_string_max", 1e6)} elements, and skipped with
+a message when larger. String coordinates are read like any other. The
+GDAL engine reads strings with GDAL7 from rgdal-dev/GDAL7#15; with an
+older GDAL7 it skips string arrays with a message (string coordinates
+too, leaving that dimension without coordinate values).
 }
 
 \subsection{Coordinate types}{
