@@ -138,7 +138,13 @@ extract_dataarray <- function(ds, var_name) {
     return(DataArray(variable = v, coords = relevant_coords, name = var_name))
   }
 
-  # 3. Not found
+  # 3. Refused by the store: say why
+  if (!is.null(be) && var_name %in% names(be$refused)) {
+    stop(sprintf("can't read '%s': %s", var_name, be$refused[[var_name]]$reason),
+         call. = FALSE)
+  }
+
+  # 4. Not found
   available <- c(names(ds@data_vars), if (!is.null(be)) names(be$schemas))
   stop(sprintf("no variable '%s' in dataset (available: %s)",
                var_name, paste(available, collapse = ", ")))

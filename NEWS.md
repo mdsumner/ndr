@@ -1,5 +1,13 @@
 # ndr (development)
 
+* Arrays a byterefs store refuses to decode (its codec chain names a codec
+  zaro doesn't know; byterefs decision 0007) are left out of the
+  Dataset's coordinates and variables and listed under "Not readable"
+  with the reason when it prints (#15). `ds$v` or `vars = "v"` for one is
+  an error giving the reason. A refused coordinate no longer stops the
+  whole open: the other arrays read, and that dimension has no coordinate
+  values. zaro still warns about refused arrays at open.
+
 * New `nd_plan()`: what reading lazy data will cost, before reading it
   (#15). For a Variable or DataArray from `open_dataset()`, after any
   `sel()`/`isel()`: the selection's size, the source chunks it touches

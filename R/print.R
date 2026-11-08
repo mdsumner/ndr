@@ -150,6 +150,16 @@ method(print, Dataset) <- function(x, ...) {
     }
   }
 
+  # arrays the store refuses to decode
+  if (!is.null(be) && length(be$refused) > 0L) {
+    cat("  Not readable:\n")
+    for (vnm in names(be$refused)) {
+      r <- be$refused[[vnm]]
+      cat(sprintf("    %-20s (%s) %s\n", vnm,
+                  paste(r$dim_names, collapse = ", "), r$reason))
+    }
+  }
+
   # attrs
   if (length(x@attrs) > 0L) {
     cat("  Attributes:\n")
