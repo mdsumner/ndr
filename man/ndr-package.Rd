@@ -11,8 +11,9 @@ Provides Variable, DataArray, and Dataset classes for N-dimensional arrays with 
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/mdsumner/ndr}
-  \item Report bugs at \url{https://github.com/mdsumner/ndr/issues}
+  \item \url{https://github.com/hypertidy/ndr}
+  \item \url{https://hypertidy.github.io/ndr/}
+  \item Report bugs at \url{https://github.com/hypertidy/ndr/issues}
 }
 
 }

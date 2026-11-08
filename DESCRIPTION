@@ -43,7 +43,7 @@ Collate:
     'coerce.R'
     'open.R'
     'zzz.R'
-URL: https://github.com/mdsumner/ndr
-BugReports: https://github.com/mdsumner/ndr/issues
+URL: https://github.com/hypertidy/ndr, https://hypertidy.github.io/ndr/
+BugReports: https://github.com/hypertidy/ndr/issues
 Remotes: rgdal-dev/GDAL7, hypertidy/altarr, hypertidy/zaro
 Config/roxygen2/version: 8.1.1
