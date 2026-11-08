@@ -63,6 +63,7 @@ test_that("guess_engine picks zaro for zaro schemes and objects", {
   expect_equal(guess_engine("s3://bucket/x.zarr"), "zaro")
   expect_equal(guess_engine("virtualizarr://https://x/y.parq"), "zaro")
   expect_equal(guess_engine("mdimrefs:///x.sqlite"), "zaro")
+  expect_equal(guess_engine("byterefs:///x.sqlite"), "zaro")
   expect_equal(guess_engine("/vsicurl/https://x/y.nc"), "gdal")
   expect_equal(guess_engine("file.nc"), "gdal")
   expect_equal(guess_engine("/data/sst.zarr"), "zaro")
