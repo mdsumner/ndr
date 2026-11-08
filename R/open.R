@@ -88,7 +88,10 @@
 #' move from the Variable's `attrs` to its `encoding`. Arrays without
 #' dimension names get names from zaro (see [zaro::zaro_dataset()]).
 #'
-#' A georeferenced grid becomes one [AffineIndex]:
+#' ## Georeferenced grids
+#'
+#' A georeferenced grid becomes one [AffineIndex], by the same rules in both
+#' engines:
 #'
 #' * GeoZarr (`spatial:dimensions`, `spatial:transform`,
 #'   `spatial:registration`, optional `spatial:shape`, on the group or the
@@ -98,6 +101,9 @@
 #' * CF: a data variable whose `grid_mapping` variable has `crs_wkt` (or
 #'   `spatial_ref`), and whose first two dims (R order) have regular
 #'   coordinates.
+#' * GDAL engine only, before the CF route: a data variable with a CRS from
+#'   GDAL whose HORIZONTAL_X / HORIZONTAL_Y dimensions (as netCDF declares
+#'   them) have regular coordinates.
 #'
 #' ## Groups
 #'
@@ -267,6 +273,13 @@ open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
               " (strings need a newer GDAL7; engine = \"zaro\" reads them)")
   }
 
+  # --- Phase 2a: a GeoZarr transform defines the x/y grid, as in the zaro
+  # engine; its coordinate arrays are then not read ---
+  root_attrs <- tryCatch(root@attributes, error = function(e) list())
+  gz <- gdal_geo_view(root_attrs, arrays)
+  affine <- geozarr_affine(gz, data_var_names)
+  if (!is.null(affine)) coord_names <- setdiff(coord_names, affine@dims)
+
   # --- Phase 2: build coordinates (always read) ---
   coords <- list()
   for (nm in coord_names) {
@@ -291,7 +304,17 @@ open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
   # When a data variable has a CRS and its HORIZONTAL_X / HORIZONTAL_Y
   # dimensions both have regular coordinates, the grid and its CRS are
   # carried together (see ?AffineIndex).
-  coords <- affine_coords_from_arrays(coords, arrays[data_var_names])
+  if (!is.null(affine)) {
+    coords <- c(stats::setNames(list(affine), paste(affine@dims, collapse = ",")),
+                coords)
+  } else {
+    coords <- affine_coords_from_arrays(coords, arrays[data_var_names])
+    # Zarr gives GDAL no dimension types: then the CF grid mapping route,
+    # as in the zaro engine
+    if (!any(vapply(coords, function(cc) S7::S7_inherits(cc, AffineIndex), NA))) {
+      coords <- cf_affine_coords(coords, gz, data_var_names)
+    }
+  }
 
   # --- Phase 3: determine scope; small string variables are read now ---
   in_scope <- scope_vars(vars, c(data_var_names, string_names))
@@ -331,7 +354,7 @@ open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
   }
 
   # --- Phase 5: global attributes ---
-  global_attrs <- tryCatch(root@attributes, error = function(e) list())
+  global_attrs <- root_attrs
 
   # --- Build backend (if there are lazy vars) ---
   backend <- NULL
@@ -392,7 +415,10 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
   }
 
   # --- a GeoZarr transform defines the x/y grid: no coordinate read ---
-  affine <- geozarr_affine(zd, data_var_names)
+  gz <- geo_view(zd$attributes,
+                 lapply(zd$arrays, function(m) m@attributes),
+                 zd$shape, zd$dims)
+  affine <- geozarr_affine(gz, data_var_names)
   if (!is.null(affine)) coord_names <- setdiff(coord_names, affine@dims)
 
   # --- scope, and which string variables are small enough to read now ---
@@ -419,7 +445,7 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
     coords <- c(stats::setNames(list(affine), paste(affine@dims, collapse = ",")),
                 coords)
   } else {
-    coords <- cf_affine_coords(coords, zd, data_var_names)
+    coords <- cf_affine_coords(coords, gz, data_var_names)
   }
 
   # --- string variables: in memory, in R dimension order ---
@@ -558,6 +584,32 @@ read_zaro_arrays <- function(zd, names) {
 }
 
 
+#' What the GeoZarr and CF georeferencing helpers need, from either engine
+#'
+#' @param group_attrs the group's attributes.
+#' @param var_attrs named list: each array's attributes.
+#' @param shape named list: each array's sizes, named by dimension, in R
+#'   order.
+#' @param dims named list: each array's dimension names, in R order.
+#' @keywords internal
+#' @noRd
+geo_view <- function(group_attrs, var_attrs, shape, dims) {
+  list(attributes = if (is.null(group_attrs)) list() else group_attrs,
+       var_attrs = var_attrs, shape = shape, dims = dims)
+}
+
+#' A geo view from the GDAL engine's open arrays
+#' @keywords internal
+#' @noRd
+gdal_geo_view <- function(group_attrs, arrays) {
+  dims <- lapply(arrays, function(a) rev(a@dimensions$name))
+  shape <- lapply(arrays, function(a) {
+    stats::setNames(rev(as.integer(a@dimensions$size)), rev(a@dimensions$name))
+  })
+  geo_view(group_attrs, lapply(arrays, function(a) a@attributes), shape, dims)
+}
+
+
 #' An AffineIndex from GeoZarr attributes, or NULL
 #'
 #' The spatial convention (`spatial:dimensions`, `spatial:transform` in
@@ -568,11 +620,10 @@ read_zaro_arrays <- function(zd, names) {
 #' definition, so the x/y coordinate arrays are not read.
 #' @keywords internal
 #' @noRd
-geozarr_affine <- function(zd, data_var_names) {
-  cands <- c(list(zd$attributes),
-             lapply(data_var_names, function(nm) zd$arrays[[nm]]@attributes))
+geozarr_affine <- function(gz, data_var_names) {
+  cands <- c(list(gz$attributes), unname(gz$var_attrs[data_var_names]))
   for (a in cands) {
-    ix <- tryCatch(affine_from_geozarr(a, zd, data_var_names),
+    ix <- tryCatch(affine_from_geozarr(a, gz, data_var_names),
                    error = function(e) NULL)
     if (!is.null(ix)) return(ix)
   }
@@ -581,7 +632,7 @@ geozarr_affine <- function(zd, data_var_names) {
 
 #' @keywords internal
 #' @noRd
-affine_from_geozarr <- function(a, zd, data_var_names) {
+affine_from_geozarr <- function(a, gz, data_var_names) {
   tr <- suppressWarnings(as.numeric(unlist(a[["spatial:transform"]])))
   sd <- as.character(unlist(a[["spatial:dimensions"]]))
   if (length(tr) != 6L || anyNA(tr) || length(sd) != 2L) return(NULL)
@@ -589,7 +640,7 @@ affine_from_geozarr <- function(a, zd, data_var_names) {
   # the dims must be a data variable's, with sizes that agree
   sizes <- NULL
   for (nm in data_var_names) {
-    s <- zd$shape[[nm]]
+    s <- gz$shape[[nm]]
     if (all(dims %in% names(s))) { sizes <- unname(s[dims]); break }
   }
   if (is.null(sizes)) return(NULL)
@@ -603,13 +654,13 @@ affine_from_geozarr <- function(a, zd, data_var_names) {
     gt[4L] <- gt[4L] - 0.5 * (gt[5L] + gt[6L])
   }
   AffineIndex(dims = dims, shape = as.integer(sizes), transform = gt,
-              crs = geozarr_crs(a, zd, data_var_names))
+              crs = geozarr_crs(a, gz, data_var_names))
 }
 
 #' CRS from the proj convention, else the CF grid mapping
 #' @keywords internal
 #' @noRd
-geozarr_crs <- function(a, zd, data_var_names) {
+geozarr_crs <- function(a, gz, data_var_names) {
   for (k in c("proj:code", "proj:wkt2")) {
     v <- a[[k]]
     if (is.character(v) && length(v) == 1L && nzchar(v)) return(v)
@@ -619,20 +670,20 @@ geozarr_crs <- function(a, zd, data_var_names) {
     return(as.character(jsonlite::toJSON(pj, auto_unbox = TRUE, digits = NA)))
   }
   gm <- c(a[["grid_mapping"]],
-          unlist(lapply(data_var_names,
-                        function(nm) zd$arrays[[nm]]@attributes[["grid_mapping"]])))
-  grid_mapping_crs(zd, gm)
+          unlist(lapply(gz$var_attrs[data_var_names],
+                        function(va) va[["grid_mapping"]])))
+  grid_mapping_crs(gz, gm)
 }
 
 #' CRS (WKT) of the first CF grid mapping variable that has one
 #' @keywords internal
 #' @noRd
-grid_mapping_crs <- function(zd, gm) {
+grid_mapping_crs <- function(gz, gm) {
   for (g in unique(as.character(gm))) {
-    m <- zd$arrays[[g]]
-    if (is.null(m)) next
+    ga <- gz$var_attrs[[g]]
+    if (is.null(ga)) next
     for (k in c("crs_wkt", "spatial_ref")) {
-      v <- m@attributes[[k]]
+      v <- ga[[k]]
       if (is.character(v) && length(v) == 1L && nzchar(v)) return(v)
     }
   }
@@ -646,12 +697,12 @@ grid_mapping_crs <- function(zd, gm) {
 #' two, (y, x), in Zarr's C order), as CF and xarray write them.
 #' @keywords internal
 #' @noRd
-cf_affine_coords <- function(coords, zd, data_var_names) {
+cf_affine_coords <- function(coords, gz, data_var_names) {
   for (nm in data_var_names) {
-    a <- zd$arrays[[nm]]@attributes
-    crs <- grid_mapping_crs(zd, a[["grid_mapping"]])
+    a <- gz$var_attrs[[nm]]
+    crs <- grid_mapping_crs(gz, a[["grid_mapping"]])
     if (!length(crs)) next
-    d <- zd$dims[[nm]]
+    d <- gz$dims[[nm]]
     if (length(d) < 2L) next
     xd <- d[1L]; yd <- d[2L]
     if (is.null(coords[[xd]]) || is.null(coords[[yd]])) next

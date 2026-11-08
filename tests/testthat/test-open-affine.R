@@ -91,3 +91,48 @@ test_that("no georeferencing: plain coordinates, as before", {
   ds <- open_dataset(p, engine = "zaro")
   expect_setequal(names(ds@coords), c("x", "y"))
 })
+
+## The GDAL engine reads the same attributes: both engines give the same
+## AffineIndex (GDAL's own route, CRS plus HORIZONTAL_X/Y dimension types,
+## is for formats that declare them, such as netCDF)
+same_index <- function(p) {
+  z <- open_dataset(p, engine = "zaro")
+  g <- open_dataset(p, engine = "gdal")
+  expect_identical(names(g@coords), names(z@coords))
+  ix_g <- g@coords[[1L]]
+  ix_z <- z@coords[[1L]]
+  expect_true(S7::S7_inherits(ix_g, AffineIndex))
+  expect_equal(ix_g@dims, ix_z@dims)
+  expect_equal(ix_g@shape, ix_z@shape)
+  expect_equal(as_geotransform(ix_g), as_geotransform(ix_z))
+  expect_identical(ix_g@crs, ix_z@crs)
+  invisible(g)
+}
+
+test_that("GDAL engine: GeoZarr transform, as the zaro engine reads it", {
+  skip_if_not_installed("GDAL7")
+  p <- make_geo(file.path(tempdir(), "geo-gdal-pixel.zarr"),
+                group_attrs = c(geozarr, '"spatial:registration": "pixel"'),
+                x = c(-1, -2, -3, -4), y = c(-1, -2, -3))
+  g <- same_index(p)
+  expect_length(g@coords, 1L)      # the wrong x/y arrays are not read
+  sub <- g$band |> sel(x = c(10, 30), y = c(90, 70)) |> collect()
+  expect_equal(as.array(sub), array(as.double(1:12), c(4L, 3L))[2:3, 2:3],
+               ignore_attr = TRUE)
+
+  node <- geozarr
+  node[2] <- '"spatial:transform": [10.0, 0.0, 5.0, 0.0, -10.0, 95.0]'
+  same_index(make_geo(file.path(tempdir(), "geo-gdal-node.zarr"),
+                      group_attrs = c(node, '"spatial:registration": "node"')))
+  same_index(make_geo(file.path(tempdir(), "geo-gdal-var.zarr"),
+                      band_attrs = c(geozarr[1:3], '"grid_mapping": "spatial_ref"'),
+                      wkt = "LOCAL_CS[\\\"test\\\"]"))
+})
+
+test_that("GDAL engine: CF grid mapping, as the zaro engine reads it", {
+  skip_if_not_installed("GDAL7")
+  g <- same_index(make_geo(file.path(tempdir(), "geo-gdal-cf.zarr"),
+                           band_attrs = '"grid_mapping": "spatial_ref"',
+                           wkt = "LOCAL_CS[\\\"test\\\"]"))
+  expect_false("spatial_ref" %in% names(g))
+})
