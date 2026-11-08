@@ -12,7 +12,8 @@
 #'   mdim-refs) read by the zaro package
 #'   (`remotes::install_github("hypertidy/zaro")`), with no GDAL in the
 #'   path. Takes anything [zaro::zaro()] opens, such as `s3://` and `gs://`
-#'   URIs, `virtualizarr://` and `byterefs://` (or `mdimrefs://`) sources, or a store or
+#'   URIs, `virtualizarr://`, `byterefs://` (or `mdimrefs://`) and `flatrefs://`
+#'   (a byterefs flat refs store, read by row group) sources, or a store or
 #'   [zaro::zaro_dataset()] object.
 #'
 #' Reading data needs the altarr package
@@ -29,7 +30,8 @@
 #' @param ... Passed to [zaro::zaro()] for the `"zaro"` engine (e.g.
 #'   `anonymous = TRUE`, `region =`); otherwise unused.
 #' @param engine `"gdal"` or `"zaro"`. The default picks `"zaro"` for zaro
-#'   objects and for `s3://`, `gs://`, `virtualizarr://`, `byterefs://`, `mdimrefs://` and
+#'   objects and for `s3://`, `gs://`, `virtualizarr://`, `byterefs://`, `mdimrefs://`,
+#'   `flatrefs://` and
 #'   `reference+json://`/`reference+parquet://` sources, and for local or
 #'   `http(s)://` paths ending in `.zarr` (or with a group after it) when zaro
 #'   is installed; else
@@ -211,7 +213,7 @@ clean_group <- function(group) {
 #' @noRd
 guess_engine <- function(dsn) {
   if (!is.character(dsn)) return("zaro")
-  zaro_schemes <- "^(s3|gs|virtualizarr|byterefs|mdimrefs|reference\\+json|reference\\+parquet)://"
+  zaro_schemes <- "^(s3|gs|virtualizarr|byterefs|mdimrefs|flatrefs|reference\\+json|reference\\+parquet)://"
   if (grepl(zaro_schemes, dsn)) return("zaro")
   # a local or http(s) path ending in .zarr: zaro if installed (GDAL can
   # read these too, so fall back to it); GDAL connection strings and /vsi
