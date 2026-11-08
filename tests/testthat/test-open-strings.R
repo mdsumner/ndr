@@ -72,12 +72,33 @@ test_that("zaro engine: string variables over the size limit are skipped", {
   expect_identical(names(ds@data_vars), "label")
 })
 
-test_that("GDAL engine: 1D variables open, strings skipped with a message", {
+test_that("GDAL engine: strings read as the zaro engine reads them", {
   skip_if_not_installed("GDAL7")
   skip_if_not_installed("altarr")
+  skip_if_not(gdal7_reads_strings(), "GDAL7 too old to read strings")
   s <- make_store(file.path(tempdir(), "ndr-strings-gdal.zarr"))
+  ds <- open_dataset(s$dir, engine = "gdal")
+  expect_setequal(names(ds@coords), c("y", "x", "band"))
+  expect_identical(ds@coords$band@values, c("b02", "b04"))
+  expect_setequal(names(ds@data_vars), c("label", "code"))
+  expect_identical(as.vector(as.array(ds$label)), c("blue", "r\u00e9d"))
+  expect_identical(ds$code@variable@dims, c("y", "band"))
+  expect_identical(unname(as.array(ds$code)), s$code)
+  expect_equal(as.vector(as.array(sel(ds$band_mean, band = "b04"))), 0.25)
+
+  old <- options(ndr.eager_string_max = 3)
+  on.exit(options(old), add = TRUE)
+  expect_message(ds <- open_dataset(s$dir, engine = "gdal"), "code")
+  expect_identical(names(ds@data_vars), "label")
+})
+
+test_that("GDAL engine, older GDAL7: strings skipped with a message", {
+  skip_if_not_installed("GDAL7")
+  skip_if_not_installed("altarr")
+  skip_if(gdal7_reads_strings(), "this GDAL7 reads strings")
+  s <- make_store(file.path(tempdir(), "ndr-strings-gdal-old.zarr"))
   expect_message(ds <- open_dataset(s$dir, engine = "gdal"),
-                 "band, code, label|non-numeric")
+                 "can't read: .*label.*newer GDAL7")
   expect_false("band" %in% names(ds@coords))
   expect_equal(as.vector(as.array(ds$band_mean)), c(0.5, 0.25))
 })

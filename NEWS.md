@@ -1,5 +1,13 @@
 # ndr (development)
 
+* The GDAL engine reads string arrays with GDAL7 from rgdal-dev/GDAL7#15
+  (`read_mdarray()` returns character, `data_type_class`): string
+  coordinates load at open, and small string data variables are read at
+  open under the same `ndr.eager_string_max` limit as the zaro engine. On
+  EOPF Sentinel-2 L2A `conditions/geometry` both engines now open the same
+  dataset with identical values. With an older GDAL7 string arrays are
+  skipped with a message, as before; compound arrays are always skipped.
+
 * `open_dataset()` opens 1D arrays along another dimension as data
   variables (they were skipped): EOPF Sentinel-2 L2A `conditions/geometry`
   now has `mean_sun_angles` on `angle`. CF grid-mapping variables (named
