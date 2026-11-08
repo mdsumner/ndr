@@ -55,8 +55,18 @@
 #'
 #' Arrays are classified as coordinates or data variables based on CF
 #' conventions: a 1D array whose name matches its dimension name is treated
-#' as a coordinate. All other arrays with >1 dimension are data variables.
-#' Bounds arrays (e.g. `time_bnds`) and scalar arrays are skipped.
+#' as a coordinate. Every other array with one or more dimensions is a data
+#' variable, including 1D arrays along another dimension (such as a mean
+#' per band) and bounds arrays (e.g. `time_bnds`). Scalar arrays are
+#' skipped.
+#'
+#' Numeric and logical data variables are lazy. String data variables can't
+#' be (lazy arrays are numeric), so with the zaro engine they are read at
+#' open when they have at most `getOption("ndr.eager_string_max", 1e6)`
+#' elements, and skipped with a message when larger. The GDAL engine can't
+#' read string arrays yet: they are skipped with a message (string
+#' coordinates too, leaving that dimension without coordinate values); use
+#' `engine = "zaro"` for those.
 #'
 #' ## Coordinate types
 #'
@@ -221,6 +231,7 @@ open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
   # --- Phase 1: classify arrays as coords or data vars ---
   coord_names <- character()
   data_var_names <- character()
+  unreadable <- character()
   arrays <- list()  # open arrays, reused below
 
   for (nm in array_names) {
@@ -231,12 +242,22 @@ open_dataset_gdal <- function(dsn, vars = NULL, group = "", ...) {
 
     ndims <- length(dim_names)
     if (ndims == 0L) next  # skip scalar arrays
-    if (ndims == 1L && dim_names == nm) {
+    if (!nzchar(arr@data_type_name)) {
+      # strings and compound types: GDAL7 reads numeric arrays only
+      unreadable <- c(unreadable, nm)
+    } else if (ndims == 1L && dim_names == nm) {
       coord_names <- c(coord_names, nm)
-    } else if (ndims > 1L) {
+    } else {
       data_var_names <- c(data_var_names, nm)
     }
-    # skip: 1D arrays that don't match their dim name (bounds, auxiliary)
+  }
+  gm_names <- grid_mapping_names(lapply(arrays, function(a) a@attributes))
+  data_var_names <- setdiff(data_var_names, gm_names)
+  unreadable <- setdiff(unreadable, gm_names)
+  if (length(unreadable)) {
+    message("ndr: skipping non-numeric array(s) the GDAL engine can't read: ",
+            paste(unreadable, collapse = ", "),
+            " (engine = \"zaro\" reads string arrays)")
   }
 
   # --- Phase 2: build coordinates (always read) ---
@@ -333,13 +354,19 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
   # --- classify, by the same rule as the GDAL engine ---
   coord_names <- character()
   data_var_names <- character()
+  string_names <- character()
+  gm_names <- grid_mapping_names(lapply(zd$arrays, function(m) m@attributes))
   for (nm in names(zd$arrays)) {
     dims <- zd$dims[[nm]]
+    dt <- zd$arrays[[nm]]@data_type
+    if (length(dims) == 0L) next  # scalar
+    if (nm %in% gm_names) next    # a CF grid mapping: CRS, not data
     if (length(dims) == 1L && dims == nm) {
       coord_names <- c(coord_names, nm)
-    } else if (length(dims) > 1L &&
-               grepl("^(u?int|float|bool)", zd$arrays[[nm]]@data_type)) {
+    } else if (grepl("^(u?int|float|bool)", dt)) {
       data_var_names <- c(data_var_names, nm)
+    } else if (is_string_dtype(dt)) {
+      string_names <- c(string_names, nm)
     }
   }
 
@@ -347,9 +374,24 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
   affine <- geozarr_affine(zd, data_var_names)
   if (!is.null(affine)) coord_names <- setdiff(coord_names, affine@dims)
 
-  # --- coordinates (always read; small) ---
+  # --- scope, and which string variables are small enough to read now ---
+  in_scope <- scope_vars(vars, c(data_var_names, string_names))
+  data_var_names <- intersect(data_var_names, in_scope)
+  string_names <- intersect(string_names, in_scope)
+  eager_max <- getOption("ndr.eager_string_max", 1e6)
+  n_el <- vapply(string_names, function(nm) prod(as.double(zd$shape[[nm]])), 1)
+  if (any(n_el > eager_max)) {
+    message("ndr: skipping string variable(s) larger than ",
+            "getOption(\"ndr.eager_string_max\") = ", format(eager_max), ": ",
+            paste(string_names[n_el > eager_max], collapse = ", "))
+  }
+  string_names <- string_names[n_el <= eager_max]
+
+  # --- coordinates (always read; small) and small string variables, in
+  # one fetch ---
   coords <- list()
-  coord_vals <- read_zaro_coords(zd, coord_names)
+  read_vals <- read_zaro_arrays(zd, c(coord_names, string_names))
+  coord_vals <- lapply(read_vals[coord_names], as.vector)
   for (nm in coord_names) {
     vals <- coord_vals[[nm]]
     a <- zd$arrays[[nm]]@attributes
@@ -366,7 +408,19 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
     coords <- cf_affine_coords(coords, zd, data_var_names)
   }
 
-  data_var_names <- scope_vars(vars, data_var_names)
+  # --- string variables: in memory, in R dimension order ---
+  data_vars <- list()
+  for (nm in string_names) {
+    x <- read_vals[[nm]]
+    d <- if (is.null(dim(x))) length(x) else dim(x)
+    x <- array(as.vector(x), unname(d))
+    if (!identical(zd$arrays[[nm]]@raw_meta[["order"]], "F")) {
+      x <- aperm(x)
+    }
+    a <- zd$arrays[[nm]]@attributes
+    a[["_ARRAY_DIMENSIONS"]] <- NULL
+    data_vars[[nm]] <- Variable(dims = zd$dims[[nm]], data = x, attrs = a)
+  }
 
   # --- schemas: CF packing attributes are encoding, data is decoded ---
   enc_keys <- c("scale_factor", "add_offset", "_FillValue", "missing_value")
@@ -393,7 +447,7 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
   }
 
   Dataset(
-    data_vars = list(),
+    data_vars = data_vars,
     coords    = coords,
     attrs     = zd$attributes,
     .backend  = backend
@@ -401,24 +455,54 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
 }
 
 
-#' Values of a dataset's coordinate arrays, fetched together
+#' Names of CF grid-mapping variables referenced by arrays' attributes
+#'
+#' `grid_mapping` is a variable name, or the extended form
+#' `"crs_a: x y crs_b: lat lon"`. These variables hold a CRS, not data.
+#' @keywords internal
+#' @noRd
+grid_mapping_names <- function(attr_list) {
+  gm <- unlist(lapply(attr_list, function(a) {
+    g <- a[["grid_mapping"]]
+    if (is.character(g) && length(g) == 1L) g
+  }))
+  if (!length(gm)) return(character())
+  out <- unlist(lapply(gm, function(g) {
+    if (grepl(":", g, fixed = TRUE)) {
+      regmatches(g, gregexpr("[^[:space:]:]+(?=:)", g, perl = TRUE))[[1L]]
+    } else trimws(g)
+  }))
+  unique(out[nzchar(out)])
+}
+
+
+#' Zarr string data types, as zaro names them (older zaro: "string")
+#' @keywords internal
+#' @noRd
+is_string_dtype <- function(dt) {
+  dt %in% c("fixed_length_utf32", "null_terminated_bytes", "string")
+}
+
+
+#' Values of whole arrays read at open (coordinates, small strings), together
 #'
 #' One `zaro::zaro_read_arrays()` call, so the arrays' chunks share one
 #' fetch (concurrent HTTP requests): opening costs about one round trip, not
-#' one per coordinate. Older zaro: one `zaro_read()` per array.
+#' one per array. Older zaro: one `zaro_read()` per array. Arrays keep
+#' their dims, in Zarr order.
 #' @keywords internal
 #' @noRd
-read_zaro_coords <- function(zd, coord_names) {
-  if (!length(coord_names)) return(list())
+read_zaro_arrays <- function(zd, names) {
+  if (!length(names)) return(list())
   if (exists("zaro_read_arrays", envir = asNamespace("zaro"), inherits = FALSE)) {
-    vals <- zaro::zaro_read_arrays(zd, coord_names, verbose = FALSE)
-    return(lapply(vals, as.vector))
+    vals <- zaro::zaro_read_arrays(zd, names, verbose = FALSE)
+    attr(vals, "stats") <- NULL
+    return(vals)
   }
-  stats::setNames(lapply(coord_names, function(nm) {
+  stats::setNames(lapply(names, function(nm) {
     path <- if (is.null(zd$paths)) nm else zd$paths[[nm]]
-    as.vector(zaro::zaro_read(zd$store, path, meta = zd$arrays[[nm]],
-                              verbose = FALSE))
-  }), coord_names)
+    zaro::zaro_read(zd$store, path, meta = zd$arrays[[nm]], verbose = FALSE)
+  }), names)
 }
 
 

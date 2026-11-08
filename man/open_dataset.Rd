@@ -69,8 +69,18 @@ package (\code{remotes::install_github("hypertidy/altarr")}).
 
 Arrays are classified as coordinates or data variables based on CF
 conventions: a 1D array whose name matches its dimension name is treated
-as a coordinate. All other arrays with >1 dimension are data variables.
-Bounds arrays (e.g. \code{time_bnds}) and scalar arrays are skipped.
+as a coordinate. Every other array with one or more dimensions is a data
+variable, including 1D arrays along another dimension (such as a mean
+per band) and bounds arrays (e.g. \code{time_bnds}). Scalar arrays are
+skipped.
+
+Numeric and logical data variables are lazy. String data variables can't
+be (lazy arrays are numeric), so with the zaro engine they are read at
+open when they have at most \code{getOption("ndr.eager_string_max", 1e6)}
+elements, and skipped with a message when larger. The GDAL engine can't
+read string arrays yet: they are skipped with a message (string
+coordinates too, leaving that dimension without coordinate values); use
+\code{engine = "zaro"} for those.
 }
 
 \subsection{Coordinate types}{
