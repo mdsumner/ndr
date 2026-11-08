@@ -349,10 +349,9 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
 
   # --- coordinates (always read; small) ---
   coords <- list()
+  coord_vals <- read_zaro_coords(zd, coord_names)
   for (nm in coord_names) {
-    path <- if (is.null(zd$paths)) nm else zd$paths[[nm]]
-    vals <- as.vector(zaro::zaro_read(zd$store, path, meta = zd$arrays[[nm]],
-                                      verbose = FALSE))
+    vals <- coord_vals[[nm]]
     a <- zd$arrays[[nm]]@attributes
     u <- a[["units"]]
     time_units <- if (is.character(u) && length(u) == 1L &&
@@ -399,6 +398,27 @@ open_dataset_zaro <- function(dsn, vars = NULL, group = "", ...) {
     attrs     = zd$attributes,
     .backend  = backend
   )
+}
+
+
+#' Values of a dataset's coordinate arrays, fetched together
+#'
+#' One `zaro::zaro_read_arrays()` call, so the arrays' chunks share one
+#' fetch (concurrent HTTP requests): opening costs about one round trip, not
+#' one per coordinate. Older zaro: one `zaro_read()` per array.
+#' @keywords internal
+#' @noRd
+read_zaro_coords <- function(zd, coord_names) {
+  if (!length(coord_names)) return(list())
+  if (exists("zaro_read_arrays", envir = asNamespace("zaro"), inherits = FALSE)) {
+    vals <- zaro::zaro_read_arrays(zd, coord_names, verbose = FALSE)
+    return(lapply(vals, as.vector))
+  }
+  stats::setNames(lapply(coord_names, function(nm) {
+    path <- if (is.null(zd$paths)) nm else zd$paths[[nm]]
+    as.vector(zaro::zaro_read(zd$store, path, meta = zd$arrays[[nm]],
+                              verbose = FALSE))
+  }), coord_names)
 }
 
 
