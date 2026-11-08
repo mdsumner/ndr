@@ -1,5 +1,11 @@
 # ndr (development)
 
+* `flatrefs://` sources (byterefs flat refs stores, hypertidy/zaro#29) open
+  with the zaro engine by default. The Bluelink BRAN2023 `temp` store
+  (12,265 days, a 324 MB reference table) opens in about a second, and a
+  point read at 147.3E 43.9S, 2.5 m on 2003-12-13 gives 12.90 C (raadtools
+  GHRSST MUR 12.91, OISST 13.07).
+
 * Arrays a byterefs store refuses to decode (its codec chain names a codec
   zaro doesn't know; byterefs decision 0007) are left out of the
   Dataset's coordinates and variables and listed under "Not readable"

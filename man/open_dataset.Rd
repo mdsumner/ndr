@@ -22,7 +22,8 @@ All variables are loaded lazily on first access via \code{$}.}
 the group named in \code{dsn} after \verb{.zarr/}, see Details).}
 
 \item{engine}{\code{"gdal"} or \code{"zaro"}. The default picks \code{"zaro"} for zaro
-objects and for \verb{s3://}, \verb{gs://}, \verb{virtualizarr://}, \verb{byterefs://}, \verb{mdimrefs://} and
+objects and for \verb{s3://}, \verb{gs://}, \verb{virtualizarr://}, \verb{byterefs://}, \verb{mdimrefs://},
+\verb{flatrefs://} and
 \verb{reference+json://}/\verb{reference+parquet://} sources, and for local or
 \verb{http(s)://} paths ending in \code{.zarr} (or with a group after it) when zaro
 is installed; else
@@ -47,7 +48,8 @@ GDAL >= 3.10).
 mdim-refs) read by the zaro package
 (\code{remotes::install_github("hypertidy/zaro")}), with no GDAL in the
 path. Takes anything \code{\link[zaro:zaro]{zaro::zaro()}} opens, such as \verb{s3://} and \verb{gs://}
-URIs, \verb{virtualizarr://} and \verb{byterefs://} (or \verb{mdimrefs://}) sources, or a store or
+URIs, \verb{virtualizarr://}, \verb{byterefs://} (or \verb{mdimrefs://}) and \verb{flatrefs://}
+(a byterefs flat refs store, read by row group) sources, or a store or
 \code{\link[zaro:zaro_dataset]{zaro::zaro_dataset()}} object.
 }
 
