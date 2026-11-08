@@ -1,5 +1,10 @@
 # ndr (development)
 
+* The zaro engine reads all coordinate arrays in one pooled fetch
+  (`zaro::zaro_read_arrays()`, hypertidy/zaro#21), so opening costs about one
+  round trip, not one per coordinate, on HTTP stores. With an older zaro it
+  reads them one at a time, as before.
+
 * The zaro engine builds an `AffineIndex` for georeferenced grids. With
   GeoZarr attributes (`spatial:transform` in rasterio order,
   `spatial:dimensions`, `spatial:registration`, CRS from `proj:code` /
