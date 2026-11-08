@@ -1,5 +1,9 @@
 # ndr (development)
 
+* `open_dataset()` picks the zaro engine by default for local and
+  `http(s)://` paths ending in `.zarr` (when zaro is installed; else GDAL).
+  `ZARR:` connection strings and `/vsi` paths still go to GDAL.
+
 ## zaro engine acceptance
 
 * `inst/examples/zaro-engine-parity.R` compares `engine = "zaro"` with the
