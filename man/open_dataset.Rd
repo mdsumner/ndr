@@ -94,6 +94,18 @@ variables are CF-decoded as they are read: fill and missing values read
 as \code{NA}, and \code{scale_factor}/\code{add_offset} are applied. Those attributes
 move from the Variable's \code{attrs} to its \code{encoding}. Arrays without
 dimension names get names from zaro (see \code{\link[zaro:zaro_dataset]{zaro::zaro_dataset()}}).
+
+A georeferenced grid becomes one \link{AffineIndex}:
+\itemize{
+\item GeoZarr (\code{spatial:dimensions}, \code{spatial:transform},
+\code{spatial:registration}, optional \code{spatial:shape}, on the group or the
+data variable): the transform defines the grid, so the x/y coordinate
+arrays are not read. The CRS comes from \code{proj:code}, \code{proj:wkt2} or
+\code{proj:projjson}, else the CF grid mapping.
+\item CF: a data variable whose \code{grid_mapping} variable has \code{crs_wkt} (or
+\code{spatial_ref}), and whose first two dims (R order) have regular
+coordinates.
+}
 }
 
 \subsection{Groups}{

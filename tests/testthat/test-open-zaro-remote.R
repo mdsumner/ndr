@@ -6,6 +6,7 @@ skip_on_cran()
 skip_if_offline()
 skip_if_not_installed("zaro")
 skip_if_not_installed("altarr")
+skip_if_not_installed("blosc")  # the public stores are blosc-compressed
 
 test_that("AODN sea level anomaly opens lazily with decoded time", {
   old <- options(zaro.verbose = FALSE)
