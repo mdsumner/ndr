@@ -79,10 +79,13 @@ method(isel, Variable) <- function(.data, ...) {
     if (any(lengths(full) == 0L)) {
       # an empty selection has nothing to read
       result <- array(vector(typeof(arr)), dim = lengths(full)[keep])
+      src <- NULL
     } else {
       result <- lazy_view(arr, full, keep)
+      src <- compose_source(.data@source, full)
     }
-    return(Variable(dims = dims[keep], data = result, attrs = .data@attrs))
+    return(Variable(dims = dims[keep], data = result, attrs = .data@attrs,
+                    source = src))
   }
 
   # subset the array

@@ -20,6 +20,9 @@
 #'   block plus the result in memory.
 #' * Arithmetic, `as.array()`, `as.data.frame()` and `collect()` read the
 #'   (selected) values into memory with one planned read.
+#' * [nd_plan()] says what such a read would cost before it happens: the
+#'   chunks it touches and, with the zaro engine, the requests, bytes and
+#'   hosts.
 #'
 #' The block size for reductions is `getOption("ndr.block_values")` values
 #' (default `2^22`); the chunk cache and fetch batching are altarr's options

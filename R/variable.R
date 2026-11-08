@@ -9,6 +9,9 @@
 #'   lazy chunked array from the altarr package (see [lazy-data]).
 #' @param attrs Named list of arbitrary metadata.
 #' @param encoding Named list of on-disk encoding info (scale_factor, etc.).
+#' @param source Where lazy data comes from, or `NULL`: set by
+#'   [open_dataset()] and carried through [isel()] and [sel()], so that
+#'   [nd_plan()] can say what reading it will cost. Not for setting by hand.
 #'
 #' @examples
 #' # A 3D temperature field
@@ -30,7 +33,8 @@ Variable <- new_class("Variable",
     dims  = class_character,
     data  = class_any,
     attrs = new_property(class_list, default = list()),
-    encoding = new_property(class_list, default = list())
+    encoding = new_property(class_list, default = list()),
+    source = new_property(class_any, default = NULL)
   ),
   validator = function(self) {
     d <- self@data

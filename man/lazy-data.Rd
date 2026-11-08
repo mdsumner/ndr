@@ -24,6 +24,9 @@ to its chunks, one planned read per block, and never hold more than one
 block plus the result in memory.
 \item Arithmetic, \code{as.array()}, \code{as.data.frame()} and \code{collect()} read the
 (selected) values into memory with one planned read.
+\item \code{\link[=nd_plan]{nd_plan()}} says what such a read would cost before it happens: the
+chunks it touches and, with the zaro engine, the requests, bytes and
+hosts.
 }
 
 The block size for reductions is \code{getOption("ndr.block_values")} values
