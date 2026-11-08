@@ -104,8 +104,12 @@ variables are CF-decoded as they are read: fill and missing values read
 as \code{NA}, and \code{scale_factor}/\code{add_offset} are applied. Those attributes
 move from the Variable's \code{attrs} to its \code{encoding}. Arrays without
 dimension names get names from zaro (see \code{\link[zaro:zaro_dataset]{zaro::zaro_dataset()}}).
+}
 
-A georeferenced grid becomes one \link{AffineIndex}:
+\subsection{Georeferenced grids}{
+
+A georeferenced grid becomes one \link{AffineIndex}, by the same rules in both
+engines:
 \itemize{
 \item GeoZarr (\code{spatial:dimensions}, \code{spatial:transform},
 \code{spatial:registration}, optional \code{spatial:shape}, on the group or the
@@ -115,6 +119,9 @@ arrays are not read. The CRS comes from \code{proj:code}, \code{proj:wkt2} or
 \item CF: a data variable whose \code{grid_mapping} variable has \code{crs_wkt} (or
 \code{spatial_ref}), and whose first two dims (R order) have regular
 coordinates.
+\item GDAL engine only, before the CF route: a data variable with a CRS from
+GDAL whose HORIZONTAL_X / HORIZONTAL_Y dimensions (as netCDF declares
+them) have regular coordinates.
 }
 }
 

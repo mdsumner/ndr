@@ -1,5 +1,18 @@
 # ndr (development)
 
+* The GDAL engine reads GeoZarr (`spatial:transform`, `proj:code`, ...)
+  and CF grid mappings as the zaro engine does, so both engines give the
+  same `AffineIndex` (identical transform, CRS and shape on EOPF
+  Sentinel-2 L2A `measurements/reflectance/r10m`), and with a GeoZarr
+  transform the x/y coordinate arrays are not read (that open 4.3 s ->
+  3.3 s). GDAL's own route (CRS plus HORIZONTAL_X/Y dimensions) stays for
+  formats that declare them, such as netCDF. The georeferencing helpers
+  work on a small view either engine builds.
+* Housekeeping: design notes move to `design/` (out of the package build,
+  which clears the check NOTE), with the gdalraster-era roadmap and notes
+  under `design/history/`; NEWS no longer describes the removed
+  `LazyDataArray`; Suggests `zaro (>= 0.0.1.9035)`.
+
 * The GDAL engine reads string arrays with GDAL7 from rgdal-dev/GDAL7#15
   (`read_mdarray()` returns character, `data_type_class`): string
   coordinates load at open, and small string data variables are read at
@@ -103,19 +116,6 @@
   `AffineIndex` when a variable has a CRS and regular HORIZONTAL_X /
   HORIZONTAL_Y coordinates.
 
-## Lazy `sel()` -> `collect()` pipeline
-
-* `LazyDataArray` class - lazy representation of a variable that carries a
-  selection spec rather than data. Created automatically when accessing
-  variables from `open_dataset()` via `ds$var_name`.
-* `sel()` and `isel()` on LazyDataArray accumulate selections without reading
-  data. Chained `isel()` calls compose indices correctly.
-* `collect()` materialises a LazyDataArray into a DataArray via a single
-  GDAL `mdim_array_read()` hyperslab call. Only the selected slice is read.
-* Auto-collect: arithmetic, reductions (`nd_mean()` etc.), and
-  `as.data.frame()` on a LazyDataArray trigger `collect()` transparently.
-* `collect()` on a DataArray is the identity - safe to call on anything.
-
 ## GDAL7 backend
 
 * `open_dataset()` now reads through GDAL7 (`rgdal-dev/GDAL7`, GDAL >= 3.10)
@@ -156,20 +156,17 @@
   kerchunk-parquet virtual stores, VRT multidim. Works with local paths and
   GDAL virtual filesystems (`/vsicurl/`, `/vsis3/`, `/vsigs/`).
 * **Lazy by default**: `open_dataset()` reads only coordinates and metadata.
-  Data variables load on first `collect()`. Use `vars` to scope which
-  variables are available.
-
-  Data variables are lazy arrays (see above); values are read when used.
-  This allows opening 12TB+ datasets without reading any array data.
+  Data variables are lazy arrays (see "Lazy data via altarr"); values are
+  read when used, so 12TB+ datasets open without reading any array data.
   Use `vars` to limit which variables are available.
 
 ## CF Time decoding 
 
 * `cf_decode_time()` - decode CF convention time values ("days since ...",
   "hours since ...") to R Date or POSIXct objects.
-* Three-tier time unit detection: GDAL dimension metadata (`coord_info$type`),
-  array attributes (`.zattrs`), and `mdim_array_info()$unit`. Covers NetCDF,
-  Zarr, and HDF5 sources where GDAL reports CF units differently.
+* Time units are found in the array's unit (GDAL gives CF units there) or
+  its `units` attribute. Covers NetCDF, Zarr, and HDF5 sources where GDAL
+  reports CF units differently.
 * Non-standard calendars (360_day, noleap, all_leap) delegate to the CFtime
   package when available. Standard/gregorian calendars use base R arithmetic.
 * CFtime added to Suggests.
@@ -179,7 +176,7 @@
 * Fixed S7 Ops registration: replaced broken `local()` loop with explicit
   top-level `method<-` calls for all arithmetic and comparison operators.
 * Unary `-` and `+` supported via `class_missing`.
-* LazyDataArray operators auto-collect before computing.
+* Operators on lazy data read it before computing.
 * Scalar x scalar broadcast edge case fixed.
 
 ## Ergonomics
@@ -197,10 +194,6 @@
 
 * Dataset gains `.backend` property (default NULL) for lazy reading. Existing
   code that constructs Dataset objects directly is unaffected.
-* `LazyDataArray` stores `.selection` (named list of index vectors) and
-  `.backend` (dsn + var_name) for deferred reads.
-* `selection_to_hyperslab()` translates R-order selections to GDAL C-order
-  start/count vectors.
 * `ds_dims()` and Dataset print include dimensions from lazy variable schemas.
 * `is_regular()` detects regularly-spaced coordinate values to choose between
   ImplicitCoord and ExplicitCoord when reading from files.
