@@ -1,13 +1,13 @@
 Package: ndr
 Title: Named-Dimension Arrays with Coordinate-Based Indexing
-Version: 0.1.0.9001
+Version: 0.1.0.9002
 Authors@R: 
     person("Michael", "Sumner", , "mdsumner@gmail.com", role = c("aut", "cre"))
 Description: Provides Variable, DataArray, and Dataset classes for
     N-dimensional arrays with named dimensions and coordinate-based
     indexing. Arithmetic operations broadcast by dimension name, not
     position. Designed as a minimal foundation for lazy, multi-file
-    scientific data access — the core data structures without any file
+    scientific data access - the core data structures without any file
     backends.
 License: MIT + file LICENSE
 Encoding: UTF-8

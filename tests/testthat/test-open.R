@@ -97,11 +97,11 @@ test_that("open_dataset produces correct coordinate types", {
 
   ds <- open_dataset(oisst_dsn)
 
-  # lat/lon should be regular → ImplicitCoord
+  # lat/lon should be regular -> ImplicitCoord
   expect_true(S7_inherits(ds@coords$lat, ImplicitCoord))
   expect_true(S7_inherits(ds@coords$lon, ImplicitCoord))
 
-  # time should be Date values → ExplicitCoord
+  # time should be Date values -> ExplicitCoord
   expect_true(S7_inherits(ds@coords$time, ExplicitCoord))
   expect_s3_class(coord_values(ds@coords$time), "Date")
 })

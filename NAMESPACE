@@ -1,4 +1,4 @@
-# Generated manually — run roxygen2::roxygenise() to regenerate
+# Generated manually - run roxygen2::roxygenise() to regenerate
 
 import(S7)
 importFrom(utils, .DollarNames)
